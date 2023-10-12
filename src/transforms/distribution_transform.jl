@@ -265,13 +265,12 @@ function DistributionTransform(disttype::Type{<:_StdDistType}, source_dist::Cont
 end
 
 
-
 function std_dist_from(src_d::Distribution)
-    throw(ArgumentError("No standard intermediate distribution defined to transform from $(typeof(src_d).name)"))
+    throw(ArgumentError("No standard intermediate1 distribution defined to transform from $(typeof(src_d).name)"))
 end
 
 function std_dist_to(trg_d::Distribution)
-    throw(ArgumentError("No standard intermediate distribution defined to transform into $(typeof(trg_d).name)"))
+    throw(ArgumentError("No standard intermediate2 distribution defined to transform into $(typeof(trg_d).name)"))
 end
 
 
@@ -486,6 +485,10 @@ std_dist_to(trg_d::DistributionsAD.TuringDirichlet) = StandardMvUniform(eff_tota
 
 std_dist_from(trg_d::Dirichlet) = StandardMvUniform(eff_totalndof(trg_d))
 std_dist_from(trg_d::DistributionsAD.TuringDirichlet) = StandardMvUniform(eff_totalndof(trg_d))
+
+
+std_dist_to(trg_d::NamedTupleDist) = StandardMvUniform(eff_totalndof(trg_d))
+std_dist_from(trg_d::NamedTupleDist) = StandardMvUniform(eff_totalndof(trg_d))
 
 
 function apply_dist_trafo(trg_d::Dirichlet, src_d::StandardMvUniform, src_v::AbstractVector{<:Real})

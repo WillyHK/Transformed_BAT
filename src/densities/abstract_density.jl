@@ -300,7 +300,23 @@ function is_log_zero(x::Real, T::Type{<:Real} = typeof(x))
     x_notnan && ((x_isinf && x_isneg) | x_notgt1 | x_notgt2 | x_iseq1 | x_iseq1)
 end
 
+function is_log_zero(x::Vector{Float64}, T::Type{<:Real} = typeof(x))
+    x=x[1]
+    U = typeof(x)
 
+    FT = float(T)
+    FU = float(U)
+
+    x_notnan = !isnan(x)
+    x_isinf = !isfinite(x)
+    x_isneg = x < zero(x)
+    x_notgt1 = !(x > log_zero_density(FT))
+    x_notgt2 = !(x > log_zero_density(FU))
+    x_iseq1 = x ≈ log_zero_density(FT)
+    x_iseq2 = x ≈ log_zero_density(FU)
+
+    x_notnan && ((x_isinf && x_isneg) | x_notgt1 | x_notgt2 | x_iseq1 | x_iseq1)
+end
 
 """
     abstract type DistLikeMeasure <: BATMeasure

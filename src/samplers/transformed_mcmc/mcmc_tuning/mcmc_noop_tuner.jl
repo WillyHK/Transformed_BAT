@@ -24,7 +24,7 @@ function TransformedMCMCNoOpTuning(tuning::TransformedMCMCNoOpTuning, chain::MCM
 end
 
 
-function tuning_init!(tuner::TransformedMCMCNoOpTuning, chain::MCMCIterator, max_nsteps::Integer)
+function tuning_init!(tuner::TransformedMCMCNoOpTuner, chain::MCMCIterator, max_nsteps::Integer)
     chain.info = TransformedMCMCIteratorInfo(chain.info, tuned = true)
     nothing
 end

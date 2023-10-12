@@ -44,6 +44,19 @@ function tune_mcmc_transform!!(
 
 end
 
+function tune_mcmc_transform!!(
+    tuner::TransformedMCMCNoOpTuner, 
+    transform,
+    p_accept::Vector,
+    z_proposed::AbstractArray, #TODO: use DensitySamples instead
+    z_current::Vector,
+    stepno::Int,
+    context::BATContext
+)
+    return (tuner, transform)
+
+end
+
 tuning_postinit!(tuner::TransformedMCMCNoOpTuner, chain::MCMCIterator, samples::DensitySampleVector) = nothing
 
 tuning_reinit!(tuner::TransformedMCMCNoOpTuner, chain::MCMCIterator, max_nsteps::Integer) = nothing

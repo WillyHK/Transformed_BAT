@@ -4,7 +4,6 @@ Pkg.activate(".")
 using Revise
 using BAT
 
-#using Plots
 using BAT.MeasureBase
 using AffineMaps
 using ChangesOfVariables
@@ -65,11 +64,18 @@ function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBl
     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
     return vec(y), ladj[1]
 end
+
+my_result = @time BAT.bat_sample_impl(posterior, 
+                TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(),
+                 adaptive_transform=f),context).result 
+
 my_result = @time BAT.bat_sample_impl(posterior, 
                 TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),
                  context).result 
 
-samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
+
+                 
+ samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
 
 function flat2batsamples(smpls_flat)
     n = length(smpls_flat[:,1])
@@ -93,10 +99,13 @@ n = bat_sample(MvNormal(zeros(7),I(7))).result
 normal::Matrix{Float32} = flatview(unshaped.(n.v))
 
 @time flow = trainsample(posterior,flow)
+
+using Plots
 samp = inverse(flow)(normal)
 plot(flat2batsamples(samp'))
 
-
+plot(x)
+plot(flat2batsamples(flow(flatview(unshaped.(x.v)))'))
 
 plot(my_result)
 #a, b, c, d = BAT.g_state
@@ -111,7 +120,8 @@ l = @btime logdensityof(x);
 logd_z = @btime l(z);
 
 z2 = rand(posterior.prior);
-logd_z = @btime logdensityof(posterior)(z2);
+logd_z = 
+logdensityof(posterior)(z2)
 
 l = logdensityof(MeasureBase.pullback(g, μ));
 
@@ -127,6 +137,13 @@ end
 
 gg = inverse(g)
 
+
+x = [1,2,3,4,5,6.,7]
+init = [x,x]
+density, trafo = BAT.transform_and_unshape(BAT.PriorToGaussian(), posterior, context)
+i = BAT.TransformedMCMCEnsembleIterator(TransformedMCMCSampling(adaptive_transform=f),density,Int32(1),init,context)
+
+BAT.transformed_mcmc_iterate!(i, BAT.TransformedMCMCNoOpTuner(),BAT.NoTransformedMCMCTemperingInstance())
 
 
 try
@@ -201,4 +218,3 @@ posterior2 = PosteriorDensity(BAT.logfuncdensity(posterior.likelihood.density._l
 @profview r_mh2 = @time BAT.bat_sample_impl(posterior2, MCMCSampling( nchains=4, nsteps=4*100000, store_burnin=true), context)
 
 r_hmc2 = @time BAT.bat_sample_impl(posterior2, MCMCSampling(mcalg=HamiltonianMC(), nchains=4, nsteps=4*20000), context)
-https://github.com/bat/AdaptiveFlows.jl/tree/dev

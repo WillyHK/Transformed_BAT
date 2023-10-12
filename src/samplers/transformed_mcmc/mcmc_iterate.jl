@@ -66,6 +66,7 @@ function TransformedMCMCIterator(
     context::BATContext,
 )
     rngpart_cycle = RNGPartition(get_rng(context), 0:(typemax(Int16) - 2))
+    global g_state=(v_init, target)
 
     μ = target
     proposal = algorithm.proposal
@@ -110,57 +111,6 @@ function _rebuild_density_sample(s::DensitySample, x, logd, weight=1)
     DensitySample(x, logd, weight, info, aux)
 end
 
-using Flux
-import Flux: gradient
-function propose_mala(
-    iter::TransformedMCMCIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
-)
-    @unpack μ, f_transform, proposal, samples, sample_z, stepno, context = iter
-    rng = get_rng(context)
-    sample_x = last(samples)
-    x, logd_x = sample_x.v, sample_x.logd
-    z, logd_z = sample_z.v, sample_z.logd
-
-    n = size(z, 1)
-    #z_proposed = z + rand(rng, proposal.proposal_dist, n) #TODO: check if proposal is symmetric? otherwise need additional factor?
-    tau = 0.1
-
-    z_proposed = z + tau*Flux.gradient(x -> logdensityof(μ,x),z)[1] + sqrt(2*tau)*rand(rng, proposal.proposal_dist, n)
-    global g_state=(z_proposed)
-
-    return z_proposed
-
-    x_proposed, ladj = with_logabsdet_jacobian(f_transform, z_proposed)
-    logd_x_proposed = BAT.checked_logdensityof(μ, x_proposed)
-    logd_z_proposed = logd_x_proposed + ladj
-    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_transform, μ), z_proposed) #TODO: remove
-
-    
-    # TODO AC: do we need to check symmetry of proposal distribution?
-    # T = typeof(logd_z)
-    # p_accept = if logd_z_proposed > -Inf
-    #     # log of ratio of forward/reverse transition probability
-    #     log_tpr = if issymmetric(proposal.proposal_dist)
-    #         T(0)
-    #     else
-    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
-    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
-    #         T(log_tp_fwd - log_tp_rev)
-    #     end
-
-    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
-    #     T(clamp(p_accept_unclamped, 0, 1))
-    # else
-    #     zero(T)
-    # end
-
-    p_accept = clamp(exp(logd_z_proposed-logd_z), 0, 1)
-
-    sample_z_proposed = _rebuild_density_sample(sample_z, z_proposed, logd_z_proposed)
-    sample_x_proposed = _rebuild_density_sample(sample_x, x_proposed, logd_x_proposed)
-
-    return sample_x_proposed, sample_z_proposed, p_accept
-end
 
 function propose_mcmc(
     iter::TransformedMCMCIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}

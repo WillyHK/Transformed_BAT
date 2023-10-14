@@ -66,16 +66,11 @@ function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBl
 end
 
 my_result = @time BAT.bat_sample_impl(posterior, 
-                TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(),
-                 adaptive_transform=f),context).result 
-
-my_result = @time BAT.bat_sample_impl(posterior, 
                 TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),
                  context).result 
 
-
                  
- samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
+samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
 
 function flat2batsamples(smpls_flat)
     n = length(smpls_flat[:,1])
@@ -87,7 +82,7 @@ end
 
 function trainsample(posterior, flow)
     f = BAT.CustomTransform(flow.flow.fs[2])
-    my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=1000),context).result 
+    my_result =  BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=1000),context).result 
     samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
     flow = optimize_flow_sequentially(samples,flow,Adam(1f-3),nbatches=10,nepochs=10,shuffle_samples=true).result
     flow(samples)
@@ -143,7 +138,14 @@ init = [x,x]
 density, trafo = BAT.transform_and_unshape(BAT.PriorToGaussian(), posterior, context)
 i = BAT.TransformedMCMCEnsembleIterator(TransformedMCMCSampling(adaptive_transform=f),density,Int32(1),init,context)
 
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+density, trafo = BAT.transform_and_unshape(BAT.TransformedMCMCSampling().pre_transform, density_notrafo, context)
+
 BAT.transformed_mcmc_iterate!(i, BAT.TransformedMCMCNoOpTuner(),BAT.NoTransformedMCMCTemperingInstance())
+BAT.mcmc_init!(BAT.TransformedMCMCSampling(),density,1,BAT.TransformedMCMCChainPoolInit(),BAT.TransformedMCMCNoOpTuner(),false,
+BAT.TransformedMCMCSampling().callback,context)
+
+BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f),context)
 
 
 try

@@ -279,6 +279,7 @@ function transformed_mcmc_iterate!(
     temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
     kwargs...
 )
+
     if isempty(chains)
         @debug "No MCMC chain(s) to iterate over."
         return chains

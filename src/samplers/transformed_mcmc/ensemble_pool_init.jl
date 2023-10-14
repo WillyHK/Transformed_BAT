@@ -13,17 +13,17 @@ Fields:
 
 $(TYPEDFIELDS)
 """
-@with_kw struct TransformedMCMCChainPoolInit <: TransformedMCMCInitAlgorithm
+@with_kw struct TransformedMCMCEnsemblePoolInit <: TransformedMCMCInitAlgorithm
     init_tries_per_chain::ClosedInterval{Int64} = ClosedInterval(8, 128)
     nsteps_init::Int64 = 1000
     initval_alg::InitvalAlgorithm = InitFromTarget()
 end
 
-export TransformedMCMCChainPoolInit
+export TransformedMCMCEnsemblePoolInit
 
 
-function apply_trafo_to_init(trafo::Function, initalg::TransformedMCMCChainPoolInit)
-    TransformedMCMCChainPoolInit(
+function apply_trafo_to_init(trafo::Function, initalg::TransformedMCMCEnsemblePoolInit)
+    TransformedMCMCEnsemblePoolInit(
     initalg.init_tries_per_chain,
     initalg.nsteps_init,
     apply_trafo_to_init(trafo, initalg.initval_alg)
@@ -59,13 +59,13 @@ function mcmc_init!(
     algorithm::TransformedMCMCSampling,
     density::AbstractMeasureOrDensity,
     nchains::Integer,
-    init_alg::TransformedMCMCChainPoolInit,
+    init_alg::TransformedMCMCEnsemblePoolInit,
     tuning_alg::TransformedMCMCTuningAlgorithm, # TODO: part of algorithm? # MCMCTuner
     nonzero_weights::Bool,
     callback::Function,
     context::BATContext
 )
-    @info "TransformedMCMCChainPoolInit: trying to generate $nchains viable MCMC chain(s)."
+    @info "TransformedMCMCEnsemblePoolInit: trying to generate $nchains viable MCMC chain(s)."
 
     initval_alg = init_alg.initval_alg
 
@@ -79,14 +79,24 @@ function mcmc_init!(
     @debug "Generating dummy MCMC chain to determine chain, output and tuner types." #TODO: remove!
 
     dummy_context = deepcopy(context)
-    dummy_initval = unshaped(bat_initval(density, InitFromTarget(), dummy_context).result, varshape(density))
-    dummy_chain = TransformedMCMCIterator(algorithm, density, 1, dummy_initval, dummy_context) 
+    dummy_initval = [unshaped(bat_initval(density, InitFromTarget(), dummy_context).result, varshape(density))]
+    global g_state=(dummy_initval)
+    dummy_chain = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_initval, dummy_context) 
     dummy_tuner = get_tuner(tuning_alg, dummy_chain)
     dummy_temperer = get_temperer(algorithm.tempering, density)
 
     chains = similar([dummy_chain], 0)
     tuners = similar([dummy_tuner], 0)
     temperers = similar([dummy_temperer], 0)
+
+    transformed_mcmc_iterate!(
+        chains,tuners,temperers
+    )
+
+    outputs = []
+    return (chains = chains, tuners = tuners, temperers = temperers, outputs = outputs)
+    BREAK 
+
 
     init_tries::Int = 1
 

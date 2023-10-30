@@ -167,52 +167,25 @@ function propose_mala(
 )
     @unpack μ, f_transform, proposal, ensembles, samples_z, stepno, context = iter
     rng = get_rng(context)
-    samples_x = last(ensembles)
-    x, logd_x = samples_x.v, samples_x.logd
+
     z, logd_z = samples_z.v, samples_z.logd
 
     n = size(z[1], 1)
-    #z_proposed = z + rand(rng, proposal.proposal_dist, n) #TODO: check if proposal is symmetric? otherwise need additional factor?
     tau = 0.1
 
-    global g_state=(z)
     z_proposed = []
     for i in 1:length(z)
         z_proposed[i] = z[i] + sqrt(2*tau)*rand(rng, proposal.proposal_dist, n) #+ tau*Flux.gradient(x -> logdensityof(μ,x),z)[1]
     end  
 
-    return z_proposed
-
-    x_proposed, ladj = with_logabsdet_jacobian(f_transform, z_proposed)
+    x_proposed = f_transform(z_proposed)
     logd_x_proposed = BAT.checked_logdensityof(μ, x_proposed)
-    logd_z_proposed = logd_x_proposed + ladj
-    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_transform, μ), z_proposed) #TODO: remove
-
-    
-    # TODO AC: do we need to check symmetry of proposal distribution?
-    # T = typeof(logd_z)
-    # p_accept = if logd_z_proposed > -Inf
-    #     # log of ratio of forward/reverse transition probability
-    #     log_tpr = if issymmetric(proposal.proposal_dist)
-    #         T(0)
-    #     else
-    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
-    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
-    #         T(log_tp_fwd - log_tp_rev)
-    #     end
-
-    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
-    #     T(clamp(p_accept_unclamped, 0, 1))
-    # else
-    #     zero(T)
-    # end
 
     p_accept = clamp(exp(logd_z_proposed-logd_z), 0, 1)
 
-    sample_z_proposed = _rebuild_density_sample(samples_z, z_proposed, logd_z_proposed)
     sample_x_proposed = _rebuild_density_sample(samples_x, x_proposed, logd_x_proposed)
 
-    return sample_x_proposed, sample_z_proposed, p_accept
+    return sample_x_proposed, p_accept
 end
 
 
@@ -283,6 +256,44 @@ function transformed_mcmc_step!!(
     return (iter, tuner_new, tempering_new)
 end
 
+function transformed_mcmc_step!!(
+    iter::TransformedMCMCEnsembleIterator,
+    tuner::MCMCFlowTuner,
+    tempering::TransformedMCMCTemperingInstance,
+)
+    @unpack  μ, flow, ensembles, stepno, context = iter
+    rng = get_rng(context)
+    samples_x = last(ensembles)
+    x, logd_x = samples_x.v, samples_x.logd
+
+    sample_x_proposed, p_accept = propose_mala(iter)
+
+    x_proposed, logd_x_proposed = sample_x_proposed.v, sample_x_proposed.logd
+
+    accepted = rand(rng, length(p_accept)) .<= p_accept
+        
+    x_new, logd_x_new = x, logd_x
+    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
+
+    state_x_new = DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
+    push!(ensembles, state_x_new) 
+
+    tuner_new, flow_new = tune_mcmc_transform!!(tuner, flow, x_new, context)
+    
+    z_new, ladj = with_logabsdet_jacobian(inverse(flow_new), x_new)
+
+    state_z_new = DensitySampleVector((z_new, logd_x_new + ladj, ones(length(z_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(z_new)), fill(nothing, length(z_new))))
+    # check if its really "+" ladj not "-"
+
+    tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
+
+    iter.μ, iter.f_transform, iter.ensembles, iter.samples_z = μ_new, f_new, ensembles, samples_z_new
+    iter.n_accepted += Int.(accepted)
+    iter.stepno += 1
+    @assert iter.context === context
+
+    return (iter, tuner_new, tempering_new)
+end
 
 
 function transformed_mcmc_iterate!(
@@ -429,4 +440,3 @@ function next_cycle!(
     
     chain
 end
-

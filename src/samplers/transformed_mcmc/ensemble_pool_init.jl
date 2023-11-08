@@ -32,7 +32,7 @@ end
 
 
 
-function _construct_chain(
+function _construct_ensemble(
     rngpart::RNGPartition,
     id::Integer,
     algorithm::TransformedMCMCSampling,
@@ -41,18 +41,21 @@ function _construct_chain(
     parent_context::BATContext
 )
     new_context = set_rng(parent_context, AbstractRNG(rngpart, id))
-    v_init = bat_initval(density, initval_alg, new_context).result
-    return TransformedMCMCIterator(algorithm, density, id, v_init, new_context)
+    v_init= []
+    for i in 1:10
+        append!(v_init,[bat_initval(density, initval_alg, new_context).result])
+    end
+    return TransformedMCMCEnsembleIterator(algorithm, density, Int32(id), v_init, new_context)
 end
 
-_gen_chains(
+_gen_ensembles(
     rngpart::RNGPartition,
     ids::AbstractRange{<:Integer},
     algorithm::TransformedMCMCSampling,
     density::AbstractMeasureOrDensity,
     initval_alg::InitvalAlgorithm,
     context::BATContext
-) = [_construct_chain(rngpart, id, algorithm, density, initval_alg, context) for id in ids]
+) = [_construct_ensemble(rngpart, id, algorithm, density, initval_alg, context) for id in ids]
 
 g_state = (;)
 function mcmc_init!(
@@ -65,7 +68,7 @@ function mcmc_init!(
     callback::Function,
     context::BATContext
 )
-    @info "TransformedMCMCEnsemblePoolInit: trying to generate $nchains viable MCMC chain(s)."
+    @info "TransformedMCMCEnsemblePoolInit: trying to generate $nchains viable MCMC ensembles(s)."
 
     initval_alg = init_alg.initval_alg
 
@@ -80,7 +83,7 @@ function mcmc_init!(
 
     dummy_context = deepcopy(context)
     dummy_initval = [unshaped(bat_initval(density, InitFromTarget(), dummy_context).result, varshape(density))]
-    global g_state=(dummy_initval)
+
     dummy_chain = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_initval, dummy_context) 
     dummy_tuner = get_tuner(tuning_alg, dummy_chain)
     dummy_temperer = get_temperer(algorithm.tempering, density)
@@ -89,20 +92,19 @@ function mcmc_init!(
     tuners = similar([dummy_tuner], 0)
     temperers = similar([dummy_temperer], 0)
 
+
     transformed_mcmc_iterate!(
         chains,tuners,temperers
     )
 
     outputs = []
-    return (chains = chains, tuners = tuners, temperers = temperers, outputs = outputs)
-    BREAK 
 
 
     init_tries::Int = 1
 
     while length(tuners) < min_nviable && ncandidates < max_ncandidates
         viable_tuners = similar(tuners, 0)
-        viable_chains = similar(chains, 0)
+        viable_chains = []#similar(chains, 0) #TODO
         viable_temperers = similar(temperers, 0)
         viable_outputs = [] #similar(outputs, 0) #TODO
 
@@ -111,9 +113,8 @@ function mcmc_init!(
             n = min(min_nviable, max_ncandidates - ncandidates)
             @debug "Generating $n $(init_tries > 1 ? "additional " : "")candidate MCMC chain(s)."
 
-            new_chains = _gen_chains(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg, context)
-
-            filter!(isvalidchain, new_chains)
+            new_chains = _gen_ensembles(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg, context)
+            #filter!(isvalidchain, new_chains)
 
             new_tuners = get_tuner.(Ref(tuning_alg), new_chains)
             new_temperers = fill(get_temperer(algorithm.tempering, density), size(new_tuners,1))
@@ -126,6 +127,7 @@ function mcmc_init!(
             @debug "Testing $(length(new_chains)) candidate MCMC chain(s)."
 
             global g_state = (new_chains,new_tuners,new_temperers)
+
             transformed_mcmc_iterate!(
                 new_chains, new_tuners, new_temperers#,
                # max_nsteps = clamp(div(init_alg.nsteps_init, 5), 10, 50),
@@ -136,20 +138,23 @@ function mcmc_init!(
             # testing if chains are viable:
             viable_idxs = findall(isviablechain.(new_chains))
 
-            new_outputs = getproperty.(new_chains, :samples) #TODO ?
+            new_outputs = getproperty.(new_chains, :ensembles) #TODO ?
+            println(typeof(new_outputs))
 
             append!(viable_tuners, new_tuners[viable_idxs])
-            append!(viable_chains, new_chains[viable_idxs])
+            #append!(viable_chains, new_chains[viable_idxs])
+            viable_chains = new_chains[viable_idxs]
             append!(viable_outputs, new_outputs[viable_idxs])
             append!(viable_temperers, new_temperers[viable_idxs])
-
         end
+
 
         @debug "Found $(length(viable_tuners)) viable MCMC chain(s)."
 
         if !isempty(viable_chains)
             desc_string = string("Init try ", init_tries, " for nvalid=", length(viable_tuners), " of min_nviable=", length(tuners), "/", min_nviable )
             progress_meter = ProgressMeter.Progress(length(viable_tuners) * init_alg.nsteps_init, desc=desc_string, barlen=80-length(desc_string), dt=0.1)
+            global g_state = (viable_chains)
             transformed_mcmc_iterate!(
                 viable_chains, viable_tuners, viable_temperers;
                 max_nsteps = init_alg.nsteps_init,
@@ -161,7 +166,9 @@ function mcmc_init!(
             good_idxs = findall(chain -> nsamples(chain) >= nsamples_thresh, viable_chains)
             @debug "Found $(length(viable_chains)) MCMC chain(s) with at least $(nsamples_thresh) unique accepted samples."
 
-            append!(chains, view(viable_chains, good_idxs))
+            global g_state = (chains,view(viable_chains, good_idxs))
+            #append!(chains, view(viable_chains, good_idxs))
+            chains = viable_chains
             append!(tuners, view(viable_tuners, good_idxs))
             append!(temperers, view(viable_temperers, good_idxs))
         end
@@ -169,7 +176,7 @@ function mcmc_init!(
         init_tries += 1
     end
 
-    outputs = getproperty.(chains, :samples)
+    outputs = getproperty.(chains, :ensembles)
 
     length(chains) < min_nviable && error("Failed to generate $min_nviable viable MCMC chains")
 
@@ -177,60 +184,74 @@ function mcmc_init!(
     tidxs = LinearIndices(chains)
     n = length(tidxs)
 
-    modes = hcat(broadcast(samples -> Array(bat_findmode(samples, MaxDensitySearch(), context).result), outputs)...)
+    # modes = hcat(broadcast(samples -> Array(bat_findmode(samples, MaxDensitySearch(), context).result), outputs)...)
 
-    final_chains = similar(chains, 0)
-    final_tuners = similar(tuners, 0)
-    final_temperers = similar(temperers, 0)
-    final_outputs = similar(outputs, 0)
+    final_chains = chains
+    final_tuners =tuners
+    final_temperers =temperers
 
-    # TODO: should we put this into a function?
-    if 2 <= m < size(modes, 2)
-        clusters = kmeans(modes, m, init = KmCentralityAlg())
-        clusters.converged || error("k-means clustering of MCMC chains did not converge")
-
-        mincosts = fill(Inf, m)
-        chain_sel_idxs = fill(0, m)
-
-        for i in tidxs
-            j = clusters.assignments[i]
-            if clusters.costs[i] < mincosts[j]
-                mincosts[j] = clusters.costs[i]
-                chain_sel_idxs[j] = i
-            end
-        end
-
-        @assert all(j -> j in tidxs, chain_sel_idxs)
-
-        for i in sort(chain_sel_idxs)
-            push!(final_chains, chains[i])
-            push!(final_tuners, tuners[i])
-            push!(final_temperers, temperers[i])
-            push!(final_outputs, outputs[i])
-        end
-    elseif m == 1
-        i = findmax(nsamples.(chains))[2]
-        push!(final_chains, chains[i])
-        push!(final_tuners, tuners[i])
-        push!(final_temperers, temperers[i])
-        push!(final_outputs, outputs[i])
-    else
-        @assert length(chains) == nchains
-        resize!(final_chains, nchains)
-        copyto!(final_chains, chains)
-
-        @assert length(tuners) == nchains
-        resize!(final_tuners, nchains)
-        copyto!(final_tuners, tuners)
-
-        @assert length(temperers) == nchains
-        resize!(final_temperers, nchains)
-        copyto!(final_temperers, temperers)
-
-        @assert length(outputs) == nchains
-        resize!(final_outputs, nchains)
-        copyto!(final_outputs, outputs)
+    out::Vector{DensitySampleVector} = []
+    for i in 1:length(outputs)
+        x = outputs[i]
+        samples = x[1]
+        #for j in 2:length(x)
+        #    append!(samples,x[j])
+        #end
+        push!(out,samples)
     end
+    final_outputs=out
+    #final_chains = similar(chains, 0)
+    #final_tuners = similar(tuners, 0)
+    #final_temperers = similar(temperers, 0)
+    #final_outputs = similar(outputs, 0)
+
+#    # TODO: should we put this into a function?
+#    if 2 <= m < size(modes, 2)
+#        clusters = kmeans(modes, m, init = KmCentralityAlg())
+#        clusters.converged || error("k-means clustering of MCMC chains did not converge")
+#
+#        mincosts = fill(Inf, m)
+#        chain_sel_idxs = fill(0, m)
+#
+#        for i in tidxs
+#            j = clusters.assignments[i]
+#            if clusters.costs[i] < mincosts[j]
+#                mincosts[j] = clusters.costs[i]
+#                chain_sel_idxs[j] = i
+#            end
+#        end
+#
+#        @assert all(j -> j in tidxs, chain_sel_idxs)
+#
+#        for i in sort(chain_sel_idxs)
+#            push!(final_chains, chains[i])
+#            push!(final_tuners, tuners[i])
+#            push!(final_temperers, temperers[i])
+#            push!(final_outputs, outputs[i])
+#        end
+#    elseif m == 1
+#        i = findmax(nsamples.(chains))[2]
+#        push!(final_chains, chains[i])
+#        push!(final_tuners, tuners[i])
+#        push!(final_temperers, temperers[i])
+#        push!(final_outputs, outputs[i])
+#    else
+#        @assert length(chains) == nchains
+#        resize!(final_chains, nchains)
+#        copyto!(final_chains, chains)
+#
+#        @assert length(tuners) == nchains
+#        resize!(final_tuners, nchains)
+#        copyto!(final_tuners, tuners)
+#
+#        @assert length(temperers) == nchains
+#        resize!(final_temperers, nchains)
+#        copyto!(final_temperers, temperers)
+#
+#        @assert length(outputs) == nchains
+#        resize!(final_outputs, nchains)
+#        copyto!(final_outputs, outputs)
+#    end
 
     @info "Selected $(length(final_chains)) MCMC chain(s)."
     #tuning_postinit!.(final_tuners, final_chains, final_outputs) #TODO: implement

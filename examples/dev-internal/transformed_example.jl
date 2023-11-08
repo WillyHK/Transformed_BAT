@@ -2,7 +2,9 @@ using Pkg
 Pkg.activate(".")
 
 using Revise
+#include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/BAT.jl")
 using BAT
+
 
 using BAT.MeasureBase
 using AffineMaps
@@ -32,7 +34,11 @@ using AdaptiveFlows
 #posterior = get_mix(2)
 #posterior = MvNormal(zeros(2),I(2))
 posterior = BAT.example_posterior()
-x = BAT.bat_sample(posterior,MCMCSampling()).result 
+x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result 
+
+# @TODO: Hier vergleichen und so bat_sample_ensemble bauen
+
+
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
 flow=build_flow(samples)
 flow(samples)
@@ -47,26 +53,32 @@ f = BAT.CustomTransform(flow.flow.fs[2])
 #f = BAT.CustomTransform(flow.flow.fs[2].flow.fs[1])
 #f = BAT.CustomTransform(x->2x)
 #f = BAT.CustomTransform(Mul(s))
-(f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
 
-function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingBlock, x::AbstractVector)
-    #println("x",x)
-    #println("type, flow", f.flow)
-    y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
-    return vec(y), ladj[1]
-end
+#########################################################################################################################################################
+ (f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
+ 
+ function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingBlock, x::AbstractVector)
+     #println("x",x)
+     #println("type, flow", f.flow)
+     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
+     return vec(y), ladj[1]
+ end
+ 
+ (f::InverseRQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
+ 
+ function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBlock, x::AbstractVector)
+     #println("x",x)
+     #println("type, flow", f.flow)
+     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
+     return vec(y), ladj[1]
+ end
+##########################################################################################################################################################
+y=BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f,
+                                                            tuning_alg=BAT.TransformedMCMCNoOpTuning()),context).result
 
-(f::InverseRQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
-
-function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBlock, x::AbstractVector)
-    #println("x",x)
-    #println("type, flow", f.flow)
-    y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
-    return vec(y), ladj[1]
-end
 
 my_result = @time BAT.bat_sample_impl(posterior, 
-                TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),
+                TransformedMCMCSampling(pre_transform=PriorToGaussian(), init=TransformedMCMCEnsemblePoolInit(),tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),
                  context).result 
 
                  
@@ -142,6 +154,7 @@ density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
 density, trafo = BAT.transform_and_unshape(BAT.TransformedMCMCSampling().pre_transform, density_notrafo, context)
 
 BAT.transformed_mcmc_iterate!(i, BAT.TransformedMCMCNoOpTuner(),BAT.NoTransformedMCMCTemperingInstance())
+BAT.transformed_mcmc_iterate!(i, BAT.MCMCFlowTuner(),BAT.NoTransformedMCMCTemperingInstance())
 BAT.mcmc_init!(BAT.TransformedMCMCSampling(),density,1,BAT.TransformedMCMCChainPoolInit(),BAT.TransformedMCMCNoOpTuner(),false,
 BAT.TransformedMCMCSampling().callback,context)
 

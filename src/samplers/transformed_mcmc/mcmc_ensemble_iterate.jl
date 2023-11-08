@@ -3,7 +3,7 @@ mutable struct TransformedMCMCEnsembleIterator{
     D<:BATMeasure,
     F,
     Q<:TransformedMCMCProposal,
-    SV<:Vector{DensitySampleVector},
+    SV,#<:Vector{DensitySampleVector},
     S<:DensitySampleVector,
     CTX<:BATContext,
 } <: MCMCIterator
@@ -77,16 +77,16 @@ function TransformedMCMCEnsembleIterator(
     g = init_adaptive_transform(adaptive_transform_spec, μ, context)
 
     logd_x = logdensityof(μ).(v_init)
-    state_x = DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))
+    states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
     inverse_g = inverse(g)
     z = vec(inverse_g.(v_init)) # sample_x.v 
-    global g_state = (state_x)
 
     logd_z = logdensityof(MeasureBase.pullback(g, μ)).(z)
-    state_z = _rebuild_density_sample_vector(state_x, z, logd_z) 
+    state_z = _rebuild_density_sample_vector(states[1], z, logd_z) 
     
-    states = Vector{DensitySampleVector}(undef,1)
-    states[1] = state_x
+    #states = Vector{DensitySampleVector}(undef,1)
+    #states[1] = state_x
+
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
@@ -104,6 +104,7 @@ end
 
 function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
     @unpack info, aux = s
+    global g_state = (x, logd, weight, info, aux)
     DensitySampleVector((x, logd, weight, info, aux))
 end
 
@@ -151,6 +152,7 @@ function propose_mcmc(
     #     zero(T)
     # end
 
+
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
     sample_z_proposed = _rebuild_density_sample_vector(samples_z, z_proposed, logd_z_proposed)
@@ -194,6 +196,7 @@ function transformed_mcmc_step!!(
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance,
 )
+
     @unpack  μ, f_transform, proposal, ensembles, samples_z, stepno, context = iter
     rng = get_rng(context)
     samples_x = last(ensembles)
@@ -211,6 +214,7 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
 
+    #TEST1
     # f_transform may have changed
     # x_new, z_new, logd_x_new, logd_z_new = if accepted
         #     x_proposed, inverse_f(x_proposed), logd_x_proposed, logd_z_proposed
@@ -220,7 +224,7 @@ function transformed_mcmc_step!!(
         
     inverse_f = inverse(f_transform)
     n_walkers = length(z_proposed)
-    x_new = Vector{Vector}(undef, n_walkers)
+    x_new = Vector{Any}(undef, n_walkers)
     z_new = Vector{Vector{Float64}}(undef, n_walkers)
     logd_x_new = Vector{Float64}(undef, n_walkers)
     logd_z_new = Vector{Float64}(undef, n_walkers)
@@ -296,7 +300,7 @@ function transformed_mcmc_step!!(
 end
 
 
-function transformed_mcmc_iterate!(
+function transformed_mcmc_iterate!( # This Version works fine
     chain::TransformedMCMCEnsembleIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance;
@@ -381,6 +385,7 @@ function transformed_mcmc_iterate!(
     return nothing
 end
 
+g_state = (;)
 function transformed_mcmc_iterate!(
     chains::AbstractVector{<:MCMCIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
@@ -394,7 +399,13 @@ function transformed_mcmc_iterate!(
         @debug "Starting iteration over $(length(chains)) MCMC chain(s)"
     end
     
-    transformed_mcmc_step!!(chains, tuners,temperers)
+    global g_state = (chains,tuners,temperers)
+    
+    for i in 1:length(chains)
+        transformed_mcmc_step!!(chains[i], tuners[i],temperers[i])
+    end
+    #TEST4
+    #transformed_mcmc_step!!(chains, tuners,temperers)
     return nothing
 end
 #=
@@ -427,16 +438,16 @@ function next_cycle!(
     chain::TransformedMCMCEnsembleIterator,
 
 )
-    chain.info = TransformedMCMCEnsembleIteratorInfo(chain.info, cycle = chain.info.cycle + 1)
+    chain.info = TransformedMCMCIteratorInfo(chain.info, cycle = chain.info.cycle + 1)
     chain.stepno = 0
 
     reset_rng_counters!(chain)
 
-    chain.samples[1] = last(chain.samples)
-    resize!(chain.samples, 1)
+    chain.ensembles[1] = last(chain.ensembles)
+    resize!(chain.ensembles, 1)
 
-    chain.samples.weight[1] = 1
-    chain.samples.info[1] = TransformedMCMCTransformedSampleID(chain.info.id, chain.info.cycle, chain.stepno)
+    chain.ensembles[1].weight[1] = 1
+    chain.ensembles[1].info[1] = TransformedMCMCTransformedSampleID(chain.info.id, chain.info.cycle, chain.stepno)
     
     chain
 end

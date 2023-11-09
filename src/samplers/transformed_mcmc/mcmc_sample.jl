@@ -27,7 +27,7 @@ struct TransformedMCMCDispatch end
     proposal::TransformedMCMCProposal = TransformedMHProposal(Normal()) #TODO: use bat_defaults
     tempering = TransformedNoTransformedMCMCTempering() # TODO: use bat_defaults
     nchains::Int = 4
-    nsteps::Int = 10^5
+    nsteps::Int = 10^4
     #TODO: max_time ?
     init::IN =  bat_default(TransformedMCMCDispatch, Val(:init), pre_transform, nchains, nsteps) #TransformedMCMCChainPoolInit()#TODO AC: use bat_defaults bat_default(MCMCSampling, Val(:init), MetropolisHastings(), pre_transform, nchains, nsteps) #TODO
     burnin::BI = bat_default(TransformedMCMCDispatch, Val(:burnin), pre_transform, nchains, nsteps)
@@ -140,8 +140,6 @@ function bat_sample_impl_ensemble(
         context
     )
     
-    global g_state = (init)
-    #TEST!!
 
     @unpack chains, tuners, temperers = init
 
@@ -223,21 +221,22 @@ function _run_sample_impl(
     progress_meter = ProgressMeter.Progress(algorithm.nchains*algorithm.nsteps, desc=description, barlen=80-length(description), dt=0.1)
 
     # tuners are set to 'NoOpTuner' for the sampling phase
-    transformed_mcmc_iterate!(
-        chains,
-        get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
-        get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
-        max_nsteps = algorithm.nsteps, #TODO: maxtime
-        nonzero_weights = algorithm.nonzero_weights,
-        callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
-    )
+    for i in 1:algorithm.nsteps
+        transformed_mcmc_iterate!(
+            chains,
+            get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
+            get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
+            max_nsteps = algorithm.nsteps, #TODO: maxtime
+            nonzero_weights = algorithm.nonzero_weights,
+            callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
+        )
+    end
     ProgressMeter.finish!(progress_meter)
 
 
     output = reduce(vcat, getproperty.(chains, :samples))
     samples_trafo = varshape(density).(output)
 
-    global g_state = (output)
 
     (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
@@ -256,14 +255,16 @@ function _run_sample_impl_ensemble(
     progress_meter = ProgressMeter.Progress(algorithm.nchains*algorithm.nsteps, desc=description, barlen=80-length(description), dt=0.1)
 
     # tuners are set to 'NoOpTuner' for the sampling phase
-    transformed_mcmc_iterate!(
-        chains,
-        get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
-        get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
-        max_nsteps = algorithm.nsteps, #TODO: maxtime
-        nonzero_weights = algorithm.nonzero_weights,
-        callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
-    )
+    for i in 1:algorithm.nsteps
+        transformed_mcmc_iterate!(
+            chains,
+            get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
+            get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
+            max_nsteps = algorithm.nsteps, #TODO: maxtime
+            nonzero_weights = algorithm.nonzero_weights,
+            callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
+        )
+    end
     ProgressMeter.finish!(progress_meter)
 
 

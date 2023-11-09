@@ -2,9 +2,17 @@ using Pkg
 Pkg.activate(".")
 
 using Revise
+using Plots
 #include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/BAT.jl")
 using BAT
 
+BAT._Plots_backend(args...; kwargs...) = Plots.backend(args...; kwargs...)
+BAT._Plots_cgrad(args...; kwargs...) = Plots.cgrad(args...; kwargs...)
+BAT._Plots_grid(args...; kwargs...) = Plots.grid(args...; kwargs...)
+BAT._Plots_Shape(args...; kwargs...) = Plots.Shape(args...; kwargs...)
+BAT._Plots_Surface(args...; kwargs...) = Plots.Surface(args...; kwargs...)
+
+BAT._Plots_backend_is_pyplot() = Plots.backend() isa Plots.PyPlotBackend
 
 using BAT.MeasureBase
 using AffineMaps
@@ -36,9 +44,6 @@ using AdaptiveFlows
 posterior = BAT.example_posterior()
 x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result 
 
-# @TODO: Hier vergleichen und so bat_sample_ensemble bauen
-
-
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
 flow=build_flow(samples)
 flow(samples)
@@ -50,9 +55,6 @@ density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, c
 
 s = cholesky(Positive, BAT._approx_cov(density)).L
 f = BAT.CustomTransform(flow.flow.fs[2])
-#f = BAT.CustomTransform(flow.flow.fs[2].flow.fs[1])
-#f = BAT.CustomTransform(x->2x)
-#f = BAT.CustomTransform(Mul(s))
 
 #########################################################################################################################################################
  (f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
@@ -73,9 +75,10 @@ f = BAT.CustomTransform(flow.flow.fs[2])
      return vec(y), ladj[1]
  end
 ##########################################################################################################################################################
-y=BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f,
+y=BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(nsteps=100, init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f,
                                                             tuning_alg=BAT.TransformedMCMCNoOpTuning()),context).result
 
+plot(y)
 
 my_result = @time BAT.bat_sample_impl(posterior, 
                 TransformedMCMCSampling(pre_transform=PriorToGaussian(), init=TransformedMCMCEnsemblePoolInit(),tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),

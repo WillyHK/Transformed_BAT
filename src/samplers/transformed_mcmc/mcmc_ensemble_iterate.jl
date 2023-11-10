@@ -119,11 +119,10 @@ function propose_mcmc(
     x, logd_x = samples_x.v, samples_x.logd
     z, logd_z = flatview(unshaped.(samples_z.v)), samples_z.logd
 
-    global g_state = (z)
     n, m = size(z)
 
-    z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
-        
+    z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor  
+
     x_proposed, ladj = with_logabsdet_jacobian(f_transform, z_proposed)
 
     z_proposed = nestedview(z_proposed)
@@ -133,25 +132,6 @@ function propose_mcmc(
     logd_z_proposed = logd_x_proposed + vec(ladj)
 
     @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_transform, μ)).(z_proposed) #TODO: remove
-
-    # TODO AC: do we need to check symmetry of proposal distribution?
-    # T = typeof(logd_z)
-    # p_accept = if logd_z_proposed > -Inf
-    #     # log of ratio of forward/reverse transition probability
-    #     log_tpr = if issymmetric(proposal.proposal_dist)
-    #         T(0)
-    #     else
-    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
-    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
-    #         T(log_tp_fwd - log_tp_rev)
-    #     end
-
-    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
-    #     T(clamp(p_accept_unclamped, 0, 1))
-    # else
-    #     zero(T)
-    # end
-
 
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
@@ -169,25 +149,40 @@ function propose_mala(
 )
     @unpack μ, f_transform, proposal, ensembles, samples_z, stepno, context = iter
     rng = get_rng(context)
+    samples_x = last(ensembles)
+    x, logd_x = samples_x.v, samples_x.logd
+    z, logd_z = flatview(unshaped.(samples_z.v)), samples_z.logd
 
-    z, logd_z = samples_z.v, samples_z.logd
+    n, m = size(z)
 
-    n = size(z[1], 1)
-    tau = 0.1
+    tau= 0.1
+    function log_target(s)
+        return BAT.checked_logdensityof(μ)(s)
+    end
 
-    z_proposed = []
-    for i in 1:length(z)
-        z_proposed[i] = z[i] + sqrt(2*tau)*rand(rng, proposal.proposal_dist, n) #+ tau*Flux.gradient(x -> logdensityof(μ,x),z)[1]
-    end  
+    gradients = flatview(z)
+    g = collect.(gradient.(log_target,nestedview(z)))
+    [gradients[:,i] = reshape(g[i][1],(n,1)) for i in 1:m]
 
-    x_proposed = f_transform(z_proposed)
-    logd_x_proposed = BAT.checked_logdensityof(μ, x_proposed)
+    t2 = sqrt(2*tau)
+    z_proposed = z + tau*gradients  + t2*rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
 
-    p_accept = clamp(exp(logd_z_proposed-logd_z), 0, 1)
+    x_proposed, ladj = with_logabsdet_jacobian(f_transform, z_proposed)
 
-    sample_x_proposed = _rebuild_density_sample(samples_x, x_proposed, logd_x_proposed)
+    z_proposed = nestedview(z_proposed)
+    x_proposed = nestedview(x_proposed)
 
-    return sample_x_proposed, p_accept
+    logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
+    logd_z_proposed = logd_x_proposed + vec(ladj) 
+
+    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_transform, μ)).(z_proposed) #TODO: remove
+
+    p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
+
+    sample_z_proposed = _rebuild_density_sample_vector(samples_z, z_proposed, logd_z_proposed)
+    sample_x_proposed = _rebuild_density_sample_vector(samples_x, x_proposed, logd_x_proposed)
+
+    return sample_x_proposed, sample_z_proposed, p_accept
 end
 
 
@@ -204,7 +199,7 @@ function transformed_mcmc_step!!(
     z, logd_z = samples_z.v, samples_z.logd
     @unpack n_accepted, stepno = iter
 
-    sample_x_proposed, sample_z_proposed, p_accept = propose_mcmc(iter)
+    sample_x_proposed, sample_z_proposed, p_accept = propose_mala(iter)
 
     z_proposed, logd_z_proposed = sample_z_proposed.v, sample_z_proposed.logd
     x_proposed, logd_x_proposed = sample_x_proposed.v, sample_x_proposed.logd

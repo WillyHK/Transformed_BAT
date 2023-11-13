@@ -3,7 +3,7 @@ mutable struct TransformedMCMCEnsembleIterator{
     D<:BATMeasure,
     F,
     Q<:TransformedMCMCProposal,
-    SV<:Vector{DensitySampleVector},
+    SV,#<:Vector{DensitySampleVector},
     S<:DensitySampleVector,
     CTX<:BATContext,
 } <: MCMCIterator
@@ -76,13 +76,15 @@ function TransformedMCMCEnsembleIterator(
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
 
     logd_x = logdensityof(μ).(v_init)
+
     state_x = DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))
     f_inv = inverse(f)
     
     state_z = f_inv(state_x)
-    
-    states = Vector{DensitySampleVector}(undef,1)
-    states[1] = state_x
+
+    #states = Vector{DensitySampleVector}(undef,1)
+    #states[1] = state_x
+
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
@@ -97,7 +99,6 @@ function TransformedMCMCEnsembleIterator(
     )
 end
 
-
 function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
 )
@@ -108,7 +109,7 @@ function propose_mcmc(
     z, logd_z = flatview(unshaped.(state_z.v)), state_z.logd
 
     n, m = size(z)
-
+  
     z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
         
     x_proposed, ladj = with_logabsdet_jacobian(f, z_proposed)
@@ -120,24 +121,6 @@ function propose_mcmc(
     logd_z_proposed = logd_x_proposed + vec(ladj)
 
     @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f, μ)).(z_proposed) #TODO: remove
-
-    # TODO AC: do we need to check symmetry of proposal distribution?
-    # T = typeof(logd_z)
-    # p_accept = if logd_z_proposed > -Inf
-    #     # log of ratio of forward/reverse transition probability
-    #     log_tpr = if issymmetric(proposal.proposal_dist)
-    #         T(0)
-    #     else
-    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
-    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
-    #         T(log_tp_fwd - log_tp_rev)
-    #     end
-
-    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
-    #     T(clamp(p_accept_unclamped, 0, 1))
-    # else
-    #     zero(T)
-    # end
 
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
@@ -195,8 +178,9 @@ function transformed_mcmc_step!!(
     iter::TransformedMCMCEnsembleIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance,
-)
+
     @unpack  μ, f, proposal, states_x, state_z, stepno, n_accepted, context = iter
+
     rng = get_rng(context)
     state_x = last(states_x)
     x, logd_x = state_x.v, state_x.logd
@@ -212,8 +196,9 @@ function transformed_mcmc_step!!(
     accepted = rand(rng, length(p_accept)) .<= p_accept
 
     f_inv = inverse(f)
+
     n_walkers = length(z_proposed)
-    x_new = Vector{Vector}(undef, n_walkers)
+    x_new = Vector{Any}(undef, n_walkers)
     z_new = Vector{Vector{Float64}}(undef, n_walkers)
     logd_x_new = Vector{Float64}(undef, n_walkers)
     logd_z_new = Vector{Float64}(undef, n_walkers)
@@ -285,7 +270,6 @@ function transformed_mcmc_step!!(
 
     return (iter, tuner_new, tempering_new)
 end
-
 
 function transformed_mcmc_iterate!(
     ensemble::TransformedMCMCEnsembleIterator,
@@ -373,6 +357,7 @@ function transformed_mcmc_iterate!(
     return nothing
 end
 
+g_state = (;)
 function transformed_mcmc_iterate!(
     chains::AbstractVector{<:MCMCIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
@@ -386,7 +371,13 @@ function transformed_mcmc_iterate!(
         @debug "Starting iteration over $(length(chains)) MCMC chain(s)"
     end
     
-    transformed_mcmc_step!!(chains, tuners,temperers)
+    global g_state = (chains,tuners,temperers)
+    
+    for i in 1:length(chains)
+        transformed_mcmc_step!!(chains[i], tuners[i],temperers[i])
+    end
+    #TEST4
+    #transformed_mcmc_step!!(chains, tuners,temperers)
     return nothing
 end
 #=
@@ -419,16 +410,16 @@ function next_cycle!(
     chain::TransformedMCMCEnsembleIterator,
 
 )
-    chain.info = TransformedMCMCEnsembleIteratorInfo(chain.info, cycle = chain.info.cycle + 1)
+    chain.info = TransformedMCMCIteratorInfo(chain.info, cycle = chain.info.cycle + 1)
     chain.stepno = 0
 
     reset_rng_counters!(chain)
 
-    chain.samples[1] = last(chain.samples)
-    resize!(chain.samples, 1)
+    chain.ensembles[1] = last(chain.ensembles)
+    resize!(chain.ensembles, 1)
 
-    chain.samples.weight[1] = 1
-    chain.samples.info[1] = TransformedMCMCTransformedSampleID(chain.info.id, chain.info.cycle, chain.stepno)
+    chain.ensembles[1].weight[1] = 1
+    chain.ensembles[1].info[1] = TransformedMCMCTransformedSampleID(chain.info.id, chain.info.cycle, chain.stepno)
     
     chain
 end

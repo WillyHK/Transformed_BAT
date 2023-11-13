@@ -1,5 +1,7 @@
 # This file is a part of BAT.jl, licensed under the MIT License (MIT).
 
+using AdaptiveFlows
+
 
 """
     MCMCFlowTuning <: TransformedMCMCTuningAlgorithm
@@ -35,12 +37,13 @@ end
 function tune_mcmc_transform!!(
     tuner::MCMCFlowTuner, 
     flow,
-    x::Vector{<:AbstractVector}, 
+    x::ArrayOfSimilarArrays, 
     context::BATContext
 )   
-    flow_new = optimize_flow_sequentially(flow, x, tuner.optimizer, tuner.n_batches, tuner.n_epochs)
+    flow_new = AdaptiveFlows.optimize_flow_sequentially(flow, x, tuner.optimizer, tuner.n_batches, tuner.n_epochs)
     tuner_new = tuner # might want to update the training parameters 
 
+    println("completed one training step")
     return tuner_new, flow_new
 end
 

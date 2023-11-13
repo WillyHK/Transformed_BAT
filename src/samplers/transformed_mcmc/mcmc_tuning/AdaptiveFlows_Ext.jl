@@ -1,0 +1,22 @@
+# This file is a part of BAT.jl, licensed under the MIT License (MIT).
+
+# (f::AdaptiveFlows.AbstractFlow)(x::ShapedAsNTArray, vs::AbstractValueShape) = vs.(nestedview(f(Matrix(flatview(unshaped.(x))))))
+# (f::AdaptiveFlows.AbstractFlow)(x::SubArray) = f(Vector(x))
+
+# function ChangesOfVariables.with_logabsdet_jacobian(f::AdaptiveFlows.AbstractFlow, x::ArrayOfSimilarArrays)
+#     y, ladj = with_logabsdet_jacobian(f, Matrix(flatview(x)))
+#     return nestedview(y), ladj
+# end    
+
+# function ChangesOfVariables.with_logabsdet_jacobian(f::AdaptiveFlows.AbstractFlow, x::SubArray)
+#     return with_logabsdet_jacobian(f, Vector(x))
+# end    
+
+# (f::AdaptiveFlows.AbstractFlow)(x::DensitySampleVector) = apply_flow_to_density_samples(f, x)
+
+# function apply_flow_to_density_samples(f::AdaptiveFlows.AbstractFlow, x::DensitySampleVector)
+#     vs = varshape(x)
+#     v_flat = flatview(unshaped.(x.v))
+#     y, ladj = with_logabsdet_jacobian(f, Matrix(v_flat))
+#     return vs.(DensitySampleVector((nestedview(y), x.logd - vec(ladj), x.weight,  x.aux, x.info)))
+# end

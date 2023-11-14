@@ -69,7 +69,7 @@ function mcmc_init!(
     callback::Function,
     context::BATContext
 )
-    @info "TransformedMCMCEnsemblePoolInit: trying to generate $nensembles viable MCMC ensembles(s)."
+    @info "TransformedMCMCEnsemblePoolInit: trying to generate $nensembles viable MCMC states_x(s)."
 
     initval_alg = init_alg.initval_alg
 
@@ -89,13 +89,13 @@ function mcmc_init!(
     dummy_tuner = get_tuner(tuning_alg, dummy_ensemble)
     dummy_temperer = get_temperer(algorithm.tempering, density)
 
-    ensembles = similar([dummy_ensemble], 0)
+    states_x = similar([dummy_ensemble], 0)
     tuners = similar([dummy_tuner], 0)
     temperers = similar([dummy_temperer], 0)
 
 
     transformed_mcmc_iterate!(
-        ensembles,tuners,temperers
+        states_x,tuners,temperers
     )
 
     outputs = []
@@ -105,7 +105,7 @@ function mcmc_init!(
 
     while length(tuners) < min_nviable && ncandidates < max_ncandidates
         viable_tuners = similar(tuners, 0)
-        viable_ensembles = []#similar(ensembles, 0) #TODO
+        viable_ensembles = []#similar(states_x, 0) #TODO
         viable_temperers = similar(temperers, 0)
         viable_outputs = [] #similar(outputs, 0) #TODO
 
@@ -136,10 +136,10 @@ function mcmc_init!(
                # nonzero_weights = nonzero_weights
             )
 
-            # testing if ensembles are viable:
+            # testing if states_x are viable:
             viable_idxs = findall(isviablechain.(new_ensembles))
 
-            new_outputs = getproperty.(new_ensembles, :ensembles) #TODO ?
+            new_outputs = getproperty.(new_ensembles, :states_x) #TODO ?
             println(typeof(new_outputs))
 
             append!(viable_tuners, new_tuners[viable_idxs])
@@ -167,9 +167,9 @@ function mcmc_init!(
             good_idxs = findall(ensemble -> nsamples(ensemble) >= nsamples_thresh, viable_ensembles)
             @debug "Found $(length(viable_ensembles)) MCMC ensemble(s) with at least $(nsamples_thresh) unique accepted samples."
 
-            global g_state = (ensembles,view(viable_ensembles, good_idxs))
-            #append!(ensembles, view(viable_ensembles, good_idxs))
-            ensembles = viable_ensembles
+            global g_state = (states_x,view(viable_ensembles, good_idxs))
+            #append!(states_x, view(viable_ensembles, good_idxs))
+            states_x = viable_ensembles
             append!(tuners, view(viable_tuners, good_idxs))
             append!(temperers, view(viable_temperers, good_idxs))
         end
@@ -177,17 +177,17 @@ function mcmc_init!(
         init_tries += 1
     end
 
-    outputs = getproperty.(ensembles, :ensembles)
+    outputs = getproperty.(states_x, :states_x)
 
-    length(ensembles) < min_nviable && error("Failed to generate $min_nviable viable MCMC ensembles")
+    length(states_x) < min_nviable && error("Failed to generate $min_nviable viable MCMC states_x")
 
     m = nensembles
-    tidxs = LinearIndices(ensembles)
+    tidxs = LinearIndices(states_x)
     n = length(tidxs)
 
     # modes = hcat(broadcast(samples -> Array(bat_findmode(samples, MaxDensitySearch(), context).result), outputs)...)
 
-    final_ensembles = ensembles
+    final_ensembles = states_x
     final_tuners =tuners
     final_temperers =temperers
 
@@ -201,7 +201,7 @@ function mcmc_init!(
         push!(out,samples)
     end
     final_outputs=out
-    #final_ensembles = similar(ensembles, 0)
+    #final_ensembles = similar(states_x, 0)
     #final_tuners = similar(tuners, 0)
     #final_temperers = similar(temperers, 0)
     #final_outputs = similar(outputs, 0)
@@ -209,7 +209,7 @@ function mcmc_init!(
 #    # TODO: should we put this into a function?
 #    if 2 <= m < size(modes, 2)
 #        clusters = kmeans(modes, m, init = KmCentralityAlg())
-#        clusters.converged || error("k-means clustering of MCMC ensembles did not converge")
+#        clusters.converged || error("k-means clustering of MCMC states_x did not converge")
 #
 #        mincosts = fill(Inf, m)
 #        ensemble_sel_idxs = fill(0, m)
@@ -225,21 +225,21 @@ function mcmc_init!(
 #        @assert all(j -> j in tidxs, ensemble_sel_idxs)
 #
 #        for i in sort(ensemble_sel_idxs)
-#            push!(final_ensembles, ensembles[i])
+#            push!(final_ensembles, states_x[i])
 #            push!(final_tuners, tuners[i])
 #            push!(final_temperers, temperers[i])
 #            push!(final_outputs, outputs[i])
 #        end
 #    elseif m == 1
-#        i = findmax(nsamples.(ensembles))[2]
-#        push!(final_ensembles, ensembles[i])
+#        i = findmax(nsamples.(states_x))[2]
+#        push!(final_ensembles, states_x[i])
 #        push!(final_tuners, tuners[i])
 #        push!(final_temperers, temperers[i])
 #        push!(final_outputs, outputs[i])
 #    else
-#        @assert length(ensembles) == nensembles
+#        @assert length(states_x) == nensembles
 #        resize!(final_ensembles, nensembles)
-#        copyto!(final_ensembles, ensembles)
+#        copyto!(final_ensembles, states_x)
 #
 #        @assert length(tuners) == nensembles
 #        resize!(final_tuners, nensembles)

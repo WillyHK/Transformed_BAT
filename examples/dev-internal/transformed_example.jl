@@ -36,7 +36,7 @@ import BAT: CustomTransform, TransformedMCMCNoOpTuner
 using InverseFunctions
 using ArraysOfArrays
 using ValueShapes
-# using AdaptiveFlows
+using AdaptiveFlows
 
 #include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Documents/eNormalizingFlows/FlowShowCase/Posterior.jl")
 #posterior = get_mix(2)

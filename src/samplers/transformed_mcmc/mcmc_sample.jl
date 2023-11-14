@@ -268,7 +268,7 @@ function _run_sample_impl_ensemble(
     ProgressMeter.finish!(progress_meter)
 
 
-    output = reduce(vcat, getproperty.(chains, :ensembles))
+    output = reduce(vcat, getproperty.(chains, :states_x))
     out = output[1]
     for i in 2:length(output)
         append!(out,output[i])

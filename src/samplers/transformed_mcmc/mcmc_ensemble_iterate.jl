@@ -112,14 +112,14 @@ function propose_mcmc(
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
     rng = get_rng(context)
-    samples_x = last(states_x)
-    x, logd_x = samples_x.v, samples_x.logd
+    states_x = last(states_x)
+    x, logd_x = states_x.v, states_x.logd
     z, logd_z = flatview(unshaped.(state_z.v)), state_z.logd
 
     n, m = size(z)
 
-    z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor  
-
+    z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
+        
     x_proposed, ladj = with_logabsdet_jacobian(f, z_proposed)
 
     z_proposed = nestedview(z_proposed)
@@ -130,12 +130,30 @@ function propose_mcmc(
 
     @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f, μ)).(z_proposed) #TODO: remove
 
+    # TODO AC: do we need to check symmetry of proposal distribution?
+    # T = typeof(logd_z)
+    # p_accept = if logd_z_proposed > -Inf
+    #     # log of ratio of forward/reverse transition probability
+    #     log_tpr = if issymmetric(proposal.proposal_dist)
+    #         T(0)
+    #     else
+    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
+    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
+    #         T(log_tp_fwd - log_tp_rev)
+    #     end
+
+    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
+    #     T(clamp(p_accept_unclamped, 0, 1))
+    # else
+    #     zero(T)
+    # end
+
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
-    sample_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
-    sample_x_proposed = _rebuild_density_sample_vector(samples_x, x_proposed, logd_x_proposed)
+    state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
+    state_x_proposed = _rebuild_density_sample_vector(states_x, x_proposed, logd_x_proposed)
 
-    return sample_x_proposed, sample_z_proposed, p_accept
+    return state_x_proposed, state_z_proposed, p_accept
 end
 
 function propose_mala(

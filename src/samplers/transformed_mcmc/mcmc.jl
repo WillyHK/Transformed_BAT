@@ -12,7 +12,6 @@ include("tempering.jl")
 include("mcmc_iterate.jl")
 include("mcmc_tuning/mcmc_tuning.jl")
 include("mcmc_ensemble_iterate.jl")
-
 include("chain_pool_init.jl")
 include("ensemble_pool_init.jl")
 include("mcmc_convergence.jl")

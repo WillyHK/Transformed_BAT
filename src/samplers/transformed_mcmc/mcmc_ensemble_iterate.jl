@@ -3,7 +3,7 @@ mutable struct TransformedMCMCEnsembleIterator{
     D<:BATMeasure,
     F,
     Q<:TransformedMCMCProposal,
-    SV<:Vector{DensitySampleVector},
+    SV,#<:Vector{DensitySampleVector},
     S<:DensitySampleVector,
     CTX<:BATContext,
 } <: MCMCIterator
@@ -19,28 +19,27 @@ mutable struct TransformedMCMCEnsembleIterator{
     context::CTX
 end
 
-getmeasure(chain::TransformedMCMCEnsembleIterator) = chain.μ
+getmeasure(ensemble::TransformedMCMCEnsembleIterator) = ensemble.μ
 
-get_context(chain::TransformedMCMCEnsembleIterator) = chain.context
+get_context(ensemble::TransformedMCMCEnsembleIterator) = ensemble.context
 
-mcmc_info(chain::TransformedMCMCEnsembleIterator) = chain.info 
+mcmc_info(ensemble::TransformedMCMCEnsembleIterator) = ensemble.info 
 
-nsteps(chain::TransformedMCMCEnsembleIterator) = chain.stepno
+nsteps(ensemble::TransformedMCMCEnsembleIterator) = ensemble.stepno
 
-nsamples(chain::TransformedMCMCEnsembleIterator) = length(chain.states_x) # @TODO
+nsamples(ensemble::TransformedMCMCEnsembleIterator) = length(ensemble.states_x) # @TODO
 
-current_ensemble(chain::TransformedMCMCEnsembleIterator) = last(chain.states_x)
+current_ensemble(ensemble::TransformedMCMCEnsembleIterator) = last(ensemble.states_x)
 
-sample_type(chain::TransformedMCMCEnsembleIterator) = eltype(chain.state_z)
+sample_type(ensemble::TransformedMCMCEnsembleIterator) = eltype(ensemble.state_z)
 
-samples_available(chain::TransformedMCMCEnsembleIterator) = size(chain.states_x, 1) > 0
+samples_available(ensemble::TransformedMCMCEnsembleIterator) = size(ensemble.states_x,1) > 0
 
-isvalidchain(chain::TransformedMCMCEnsembleIterator) = min(current_sample(chain).logd) > -Inf
+isvalidchain(ensemble::TransformedMCMCEnsembleIterator) = min(current_sample(ensemble).logd) > -Inf
 
-isviablechain(chain::TransformedMCMCEnsembleIterator) = nsamples(chain) >= 2
+isviablechain(ensemble::TransformedMCMCEnsembleIterator) = nsamples(ensemble) >= 2
 
-eff_acceptance_ratio(chain::TransformedMCMCEnsembleIterator) = nsamples(chain) / chain.stepno
-
+eff_acceptance_ratio(ensemble::TransformedMCMCEnsembleIterator) = nsamples(ensemble) / ensemble.stepno
 
 
 #ctor
@@ -55,7 +54,6 @@ function TransformedMCMCEnsembleIterator(
 end
 
 
-#ctor
 export TransformedMCMCEnsembleIterator
 function TransformedMCMCEnsembleIterator(
     algorithm::TransformedMCMCSampling,
@@ -76,13 +74,11 @@ function TransformedMCMCEnsembleIterator(
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
 
     logd_x = logdensityof(μ).(v_init)
-    state_x = DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))
+    states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
     f_inv = inverse(f)
+
+    state_z = f_inv(states[end])
     
-    state_z = f_inv(state_x)
-    
-    states = Vector{DensitySampleVector}(undef,1)
-    states[1] = state_x
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
@@ -95,6 +91,12 @@ function TransformedMCMCEnsembleIterator(
         TransformedMCMCIteratorInfo(id, cycle, false, false),
         context
     )
+end
+
+
+function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
+    @unpack info, aux = s
+    DensitySampleVector((x, logd, weight, info, aux))
 end
 
 
@@ -159,6 +161,7 @@ function propose_mala(
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
     state_x_proposed = _rebuild_density_sample_vector(last(states_x), x_proposed, logd_x_proposed)
+    state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
 
     return state_x_proposed, p_accept
 end
@@ -185,7 +188,7 @@ function transformed_mcmc_step!!(
 
     f_inv = inverse(f)
     n_walkers = length(z_proposed)
-    x_new = Vector{Vector}(undef, n_walkers)
+    x_new = Vector{Any}(undef, n_walkers)
     z_new = Vector{Vector{Float64}}(undef, n_walkers)
     logd_x_new = Vector{Float64}(undef, n_walkers)
     logd_z_new = Vector{Float64}(undef, n_walkers)
@@ -255,7 +258,7 @@ function transformed_mcmc_step!!(
 end
 
 
-function transformed_mcmc_iterate!(
+function transformed_mcmc_iterate!( # This Version works fine
     ensemble::TransformedMCMCEnsembleIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance;
@@ -264,8 +267,7 @@ function transformed_mcmc_iterate!(
     nonzero_weights::Bool = true,
     callback::Function = nop_func,
 )
-    #update with correct message
-    @debug "Starting iteration over MCMC chain $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
+    @debug "Starting iteration over MCMC ensemble $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
 
     start_time = time()
     last_progress_message_time = start_time
@@ -286,20 +288,20 @@ function transformed_mcmc_iterate!(
         logging_interval = 5 * round(log2(elapsed_time/60 + 1) + 1)
         if current_time - last_progress_message_time > logging_interval
             last_progress_message_time = current_time
-            @debug "Iterating over MCMC chain $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) (of $(max_nsteps)) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time) so far."
+            @debug "Iterating over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) (of $(max_nsteps)) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time) so far."
         end
     end
 
     current_time = time()
     elapsed_time = current_time - start_time
-    @debug "Finished iteration over MCMC chain $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time)."
-    println("Finished iteration over MCMC chain $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time).")
+    @debug "Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time)."
+    println("Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time).")
     return nothing
 end
 
 
 function transformed_mcmc_iterate!(
-    chain::MCMCIterator,
+    ensemble::MCMCIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance;
     # tuner::TransformedAbstractMCMCTunerInstance;
@@ -311,7 +313,7 @@ function transformed_mcmc_iterate!(
     cb = callback# combine_callbacks(tuning_callback(tuner), callback) #TODO CA: tuning_callback
     
     transformed_mcmc_iterate!(
-        chain, tuner, tempering,
+        ensemble, tuner, tempering,
         max_nsteps = max_nsteps, max_time = max_time, nonzero_weights = nonzero_weights, callback = cb
     )
 
@@ -328,10 +330,10 @@ function transformed_mcmc_iterate!(
     global t = tuners
     Hallo2
     if isempty(chains)
-        @debug "No MCMC chain(s) to iterate over."
+        @debug "No MCMC ensemble(s) to iterate over."
         return chains
     else
-        @debug "Starting iteration over $(length(chains)) MCMC chain(s)"
+        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
     end
 
     @sync for i in eachindex(chains, tuners, temperers)
@@ -341,6 +343,7 @@ function transformed_mcmc_iterate!(
     return nothing
 end
 
+g_state = (;)
 function transformed_mcmc_iterate!(
     chains::AbstractVector{<:MCMCIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
@@ -348,60 +351,61 @@ function transformed_mcmc_iterate!(
     kwargs...
 )
     if isempty(chains)
-        @debug "No MCMC chain(s) to iterate over."
+        @debug "No MCMC ensemble(s) to iterate over."
         return chains
     else
-        @debug "Starting iteration over $(length(chains)) MCMC chain(s)"
+        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
     end
     
-    transformed_mcmc_step!!(chains, tuners,temperers)
+    global g_state = (chains,tuners,temperers)
+    
+    for i in 1:length(chains)
+        transformed_mcmc_step!!(chains[i], tuners[i],temperers[i])
+    end
+    #TEST4
+    #transformed_mcmc_step!!(chains, tuners,temperers)
     return nothing
 end
 #=
 # Unused?
 function reset_chain(
     rng::AbstractRNG,
-    chain::TransformedMCMCEnsembleIterator,
+    ensemble::TransformedMCMCEnsembleIterator,
 )
     rngpart_cycle = RNGPartition(rng, 0:(typemax(Int16) - 2))
     #TODO reset cycle count?
-    chain.rngpart_cycle = rngpart_cycle
-    chain.info = TransformedMCMCEnsembleIteratorInfo(chain.info, cycle=0)
-    chain.context = set_rng(chain.context, rng)
+    ensemble.rngpart_cycle = rngpart_cycle
+    ensemble.info = TransformedMCMCEnsembleIteratorInfo(ensemble.info, cycle=0)
+    ensemble.context = set_rng(ensemble.context, rng)
     # wants a next_cycle!
-    # reset_rng_counters!(chain)
+    # reset_rng_counters!(ensemble)
 end
 =#
 
 
-function reset_rng_counters!(chain::TransformedMCMCEnsembleIterator)
-    rng = get_rng(get_context(chain))
-    set_rng!(rng, chain.rngpart_cycle, chain.info.cycle)
+function reset_rng_counters!(ensemble::TransformedMCMCEnsembleIterator)
+    rng = get_rng(get_context(ensemble))
+    set_rng!(rng, ensemble.rngpart_cycle, ensemble.info.cycle)
     rngpart_step = RNGPartition(rng, 0:(typemax(Int32) - 2))
-    set_rng!(rng, rngpart_step, chain.stepno)
+    set_rng!(rng, rngpart_step, ensemble.stepno)
     nothing
 end
 
 
 function next_cycle!(
-    chain::TransformedMCMCEnsembleIterator,
+    ensemble::TransformedMCMCEnsembleIterator,
 
 )
-    chain.info = TransformedMCMCEnsembleIteratorInfo(chain.info, cycle = chain.info.cycle + 1)
-    chain.stepno = 0
+    ensemble.info = TransformedMCMCIteratorInfo(ensemble.info, cycle = ensemble.info.cycle + 1)
+    ensemble.stepno = 0
 
-    reset_rng_counters!(chain)
+    reset_rng_counters!(ensemble)
 
-    chain.samples[1] = last(chain.samples)
-    resize!(chain.samples, 1)
+    ensemble.states_x[1] = last(ensemble.states_x)
+    resize!(ensemble.states_x, 1)
 
-    chain.samples.weight[1] = 1
-    chain.samples.info[1] = TransformedMCMCTransformedSampleID(chain.info.id, chain.info.cycle, chain.stepno)
+    ensemble.states_x[1].weight[1] = 1
+    ensemble.states_x[1].info[1] = TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno)
     
-    chain
-end
-
-function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
-    @unpack info, aux = s
-    DensitySampleVector((x, logd, weight, info, aux))
+    ensemble
 end

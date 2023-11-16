@@ -40,10 +40,10 @@ function tune_mcmc_transform!!(
     x::ArrayOfSimilarArrays, 
     context::BATContext
 )   
-    flow_new = AdaptiveFlows.optimize_flow_sequentially(flow, x, tuner.optimizer, tuner.n_batches, tuner.n_epochs)
+    # TODO find better way to handle ElasticMatrices
+    flow_new = AdaptiveFlows.optimize_flow_sequentially(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
     tuner_new = tuner # might want to update the training parameters 
 
-    println("completed one training step")
     return tuner_new, flow_new
 end
 

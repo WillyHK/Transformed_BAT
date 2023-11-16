@@ -16,6 +16,8 @@ using Printf
 using Random
 using Statistics
 
+using AdaptiveFlows
+
 using AffineMaps
 using ArgCheck
 using ArraysOfArrays

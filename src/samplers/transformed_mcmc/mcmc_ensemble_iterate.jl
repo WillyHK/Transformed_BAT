@@ -42,7 +42,6 @@ isviablechain(ensemble::TransformedMCMCEnsembleIterator) = nsamples(ensemble) >=
 eff_acceptance_ratio(ensemble::TransformedMCMCEnsembleIterator) = nsamples(ensemble) / ensemble.stepno
 
 
-
 #ctor
 function TransformedMCMCEnsembleIterator(
     algorithm::TransformedMCMCSampling,
@@ -72,23 +71,18 @@ function TransformedMCMCEnsembleIterator(
     n_accepted = zeros(Int64,length(v_init))
 
     adaptive_transform_spec = algorithm.adaptive_transform
-    g = init_adaptive_transform(adaptive_transform_spec, μ, context)
+    f = init_adaptive_transform(adaptive_transform_spec, μ, context)
 
     logd_x = logdensityof(μ).(v_init)
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
-    inverse_g = inverse(g)
-    z = vec(inverse_g.(v_init)) # sample_x.v 
+    f_inv = inverse(f)
 
-    logd_z = logdensityof(MeasureBase.pullback(g, μ)).(z)
-    state_z = _rebuild_density_sample_vector(states[1], z, logd_z) 
+    state_z = f_inv(states[end])
     
-    #states = Vector{DensitySampleVector}(undef,1)
-    #states[1] = state_x
-
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
-        g,
+        f,
         proposal,
         states,
         state_z,
@@ -105,7 +99,6 @@ function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=
     DensitySampleVector((x, logd, weight, info, aux))
 end
 
-g_state=(;)
 
 function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
@@ -129,24 +122,6 @@ function propose_mcmc(
     logd_z_proposed = logd_x_proposed + vec(ladj)
 
     @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f, μ)).(z_proposed) #TODO: remove
-
-    # TODO AC: do we need to check symmetry of proposal distribution?
-    # T = typeof(logd_z)
-    # p_accept = if logd_z_proposed > -Inf
-    #     # log of ratio of forward/reverse transition probability
-    #     log_tpr = if issymmetric(proposal.proposal_dist)
-    #         T(0)
-    #     else
-    #         log_tp_fwd = proposaldist_logpdf(proposaldist, proposed_params, current_params)
-    #         log_tp_rev = proposaldist_logpdf(proposaldist, current_params, proposed_params)
-    #         T(log_tp_fwd - log_tp_rev)
-    #     end
-
-    #     p_accept_unclamped = exp(proposed_log_posterior - current_log_posterior - log_tpr)
-    #     T(clamp(p_accept_unclamped, 0, 1))
-    # else
-    #     zero(T)
-    # end
 
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
@@ -173,12 +148,12 @@ function propose_mala(
     ν = Transformed(μ_flat, inverse(f), TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
-
-    for i in 1:length(z)
+    
+    for i in 1:length(z) # make parallel?
         z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
     end  
 
-    x_proposed = f.(z_proposed)
+    x_proposed = f(z_proposed)
 
     logd_x_proposed = BAT.checked_logdensityof(unshaped(μ)).(x_proposed)
     logd_z_proposed = log_ν.(z_proposed)
@@ -188,7 +163,7 @@ function propose_mala(
     state_x_proposed = _rebuild_density_sample_vector(last(states_x), x_proposed, logd_x_proposed)
     state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
 
-    return state_x_proposed, state_z_proposed, p_accept
+    return state_x_proposed, p_accept
 end
 
 function transformed_mcmc_step!!(
@@ -227,7 +202,6 @@ function transformed_mcmc_step!!(
 
     state_x_new = DensitySampleVector((x_new,logd_x_new,ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno),length(x_new)), fill(nothing,length(x_new))))
 
-    global g_state=(states_x,state_x_new)
     push!(states_x, state_x_new) 
 
     state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
@@ -244,7 +218,6 @@ function transformed_mcmc_step!!(
     return (iter, tuner_new, tempering_new)
 end
 
-
 function transformed_mcmc_step!!(
     iter::TransformedMCMCEnsembleIterator,
     tuner::MCMCFlowTuner,
@@ -254,6 +227,7 @@ function transformed_mcmc_step!!(
     rng = get_rng(context)
     state_x = last(states_x)
     x, logd_x = unshaped.(state_x.v), state_x.logd
+    vs = varshape(μ)
 
     state_x_proposed, p_accept = propose_mala(iter)
 
@@ -264,17 +238,14 @@ function transformed_mcmc_step!!(
     x_new, logd_x_new = x, logd_x
     x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
 
-    state_x_new = DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
+    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new)))))
     push!(states_x, state_x_new) 
 
-    global g_state_3 = (x_new)
-
-    tuner_new, f_new = tune_mcmc_transform!!(tuner, f, x_new, context)
+    tuner_new, f_inv_opt_res = tune_mcmc_transform!!(tuner, inverse(f), x_new, context)
     
-    state_z_new = inverse(f_new)(state_x_new)
+    f_new = inverse(f_inv_opt_res.result)
 
-    #z_new, ladj = with_logabsdet_jacobian(inverse(flow_new), x_new)
-    #state_z_new = DensitySampleVector((z_new, logd_x_new - ladj, ones(length(z_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(z_new)), fill(nothing, length(z_new))))
+    state_z_new = inverse(f_new)(state_x_new)
 
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 

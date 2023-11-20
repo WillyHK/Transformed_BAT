@@ -72,10 +72,11 @@ function TransformedMCMCEnsembleIterator(
 
     adaptive_transform_spec = algorithm.adaptive_transform
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
+    f_intern = f.flow.fs[2]
 
     logd_x = logdensityof(μ).(v_init)
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
-    f_inv = inverse(f)
+    f_inv = inverse(f)#_intern)
 
     global g_state = (f_inv, states[end])
     state_z = f_inv(states[end])
@@ -105,6 +106,7 @@ function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
+
     rng = get_rng(context)
     states_x = last(states_x)
     x, logd_x = states_x.v, states_x.logd
@@ -145,6 +147,7 @@ function propose_mala(
     z_proposed = similar(z)
 
     tau = 0.001
+    n = size(z[1], 1)
 
     μ_flat = unshaped(μ)    
     ν = Transformed(μ_flat, inverse(f), TDLADJCorr())
@@ -154,7 +157,7 @@ function propose_mala(
     #global g_state = (z_proposed, proposal)
 
     for i in 1:length(z) # make parallel?
-        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist) + tau .* ∇log_ν(z[i])
+        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
     end  
 
     x_proposed = f(z_proposed)
@@ -241,8 +244,10 @@ function transformed_mcmc_step!!(
         
     x_new, logd_x_new = x, logd_x
     x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
+    x_new2 = Vector{Any}(x_new)
 
-    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new)))))
+    state_x_new = DensitySampleVector((x_new2, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
+    global g_state=(x_new2,state_x_new, states_x)
     push!(states_x, state_x_new) 
 
     tuner_new, f_inv_opt_res = tune_mcmc_transform!!(tuner, inverse(f), x_new, context)

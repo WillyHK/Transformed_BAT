@@ -74,15 +74,36 @@ f = BAT.CustomTransform(flow.flow.fs[2])
      return vec(y), ladj[1]
  end
 ##########################################################################################################################################################
-y=BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(nsteps=100, init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f,
-                                                            tuning_alg=BAT.TransformedMCMCNoOpTuning()),
-                                                            context).result
-
+y = @time BAT.bat_sample_impl(posterior, 
+        TransformedMCMCSampling(
+            pre_transform=PriorToGaussian(), 
+            init=TransformedMCMCEnsemblePoolInit(),
+            tuning_alg=TransformedMCMCNoOpTuning(), 
+            adaptive_transform=f, nchains=4, nsteps=100),
+        context).result 
 plot(y)
 
+####################################################################
+# Teste den neuen Tuner
+####################################################################
+
+z = @time BAT.bat_sample_impl(posterior, 
+        TransformedMCMCSampling(
+            pre_transform=PriorToGaussian(), 
+            init=TransformedMCMCEnsemblePoolInit(),
+            tuning_alg=MCMCFlowTuning(), 
+            adaptive_transform=f, nchains=4, nsteps=100),
+        context).result 
+
+
+
 my_result = @time BAT.bat_sample_impl(posterior, 
-                TransformedMCMCSampling(pre_transform=PriorToGaussian(), init=TransformedMCMCEnsemblePoolInit(),tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=100),
-                 context).result 
+        TransformedMCMCSampling(
+            pre_transform=PriorToGaussian(), 
+            init=TransformedMCMCEnsemblePoolInit(),
+            tuning_alg=TransformedMCMCNoOpTuning(), 
+            adaptive_transform=f, nchains=4, nsteps=100),
+        context).result 
 
                  
 samples::Matrix{Float32} = flatview(unshaped.(my_result.v))

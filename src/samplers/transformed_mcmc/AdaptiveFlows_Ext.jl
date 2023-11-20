@@ -1,10 +1,10 @@
 # This file is a part of BAT.jl, licensed under the MIT License (MIT).
 
-(f::AdaptiveFlows.AbstractFlow)(x::ShapedAsNTArray, vs::AbstractValueShape) = vs.(nestedview(f(Matrix(flatview(unshaped.(x))))))
+(f::RQSplineCouplingModule)(x::ShapedAsNTArray, vs::AbstractValueShape) = vs.(nestedview(f(Matrix(flatview(unshaped.(x))))))
 (f::RQSplineCouplingModule)(x::SubArray) = f(Vector(x))
-(f::AdaptiveFlows.AbstractFlow)(x::ArrayOfSimilarArrays) = nestedview(f(flatview(x)))
+(f::RQSplineCouplingModule)(x::ArrayOfSimilarArrays) = nestedview(f(flatview(x)))
 (f::RQSplineCouplingModule)(x::DensitySampleVector) = apply_flow_to_density_samples(f, x)
-(f::AdaptiveFlows.AbstractFlow)(x::ElasticArrays.ElasticMatrix) = f(Matrix(reshape(x[1], :, 1)))
+(f::RQSplineCouplingModule)(x::ElasticArrays.ElasticMatrix) = f(Matrix(reshape(x[1], :, 1)))
 
 function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingModule, x::ArrayOfSimilarArrays)
     y, ladj = with_logabsdet_jacobian(f, Matrix(flatview(x)))

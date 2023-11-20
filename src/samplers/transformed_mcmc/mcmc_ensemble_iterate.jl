@@ -1,7 +1,7 @@
 mutable struct TransformedMCMCEnsembleIterator{
     PR<:RNGPartition,
     D<:BATMeasure,
-    F,
+    F<:Function,
     Q<:TransformedMCMCProposal,
     SV,#<:Vector{DensitySampleVector},
     S<:DensitySampleVector,
@@ -132,6 +132,8 @@ function propose_mcmc(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
+#g_state = (;)
+
 function propose_mala(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
 )
@@ -142,7 +144,6 @@ function propose_mala(
     z, logd_z = unshaped.(state_z.v), state_z.logd
     z_proposed = similar(z)
 
-    n = size(z[1], 1)
     tau = 0.001
 
     μ_flat = unshaped(μ)    
@@ -150,8 +151,10 @@ function propose_mala(
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
     
+    #global g_state = (z_proposed, proposal)
+
     for i in 1:length(z) # make parallel?
-        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
+        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist) + tau .* ∇log_ν(z[i])
     end  
 
     x_proposed = f(z_proposed)
@@ -258,8 +261,50 @@ function transformed_mcmc_step!!(
     return (iter, tuner_new, tempering_new)
 end
 
+g_state_flow_prop = (;)
 
-function transformed_mcmc_iterate!( # This Version works fine
+function transformed_mcmc_trafo_proposal_step!!(
+    ensemble::TransformedMCMCEnsembleIterator,
+    tempering::TransformedMCMCTemperingInstance
+)
+    @unpack  μ, f, proposal, states_x, stepno, context = ensemble
+    rng = get_rng(context)
+    vs = varshape(μ)
+    proposal_dist = proposal.proposal_dist
+
+    state_x = last(states_x)
+    x, logd_x = unshaped.(state_x.v), state_x.logd
+    state_z_proposed = bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
+
+    x_proposed = f(unshaped.(state_z_proposed.v))
+
+    global g_state_flow_prop = (x_proposed, state_z_proposed, μ)
+
+    logd_x_proposed = logdensityof(unshaped(μ)).(x_proposed)
+
+    p_accept = clamp.(exp.(logd_x_proposed - logd_x), 0, 1)
+
+    accepted = rand(rng, length(p_accept)) .<= p_accept
+        
+    x_new, logd_x_new = x, logd_x
+    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
+
+    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new)))))
+    push!(states_x, state_x_new) 
+
+    state_z_new = inverse(f)(state_x_new)
+
+    tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
+
+    ensemble.μ, ensemble.state_z = μ_new, state_z_new
+    ensemble.n_accepted += Int.(accepted)
+    ensemble.stepno += 1
+    @assert ensemble.context === context
+
+    return (ensemble, tempering_new)
+end
+
+function transformed_mcmc_iterate!(
     ensemble::TransformedMCMCEnsembleIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
     tempering::TransformedMCMCTemperingInstance;
@@ -267,6 +312,7 @@ function transformed_mcmc_iterate!( # This Version works fine
     max_time::Real = Inf,
     nonzero_weights::Bool = true,
     callback::Function = nop_func,
+    transformed_proposal_idx::Integer = 10
 )
     @debug "Starting iteration over MCMC ensemble $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
 
@@ -279,10 +325,13 @@ function transformed_mcmc_iterate!( # This Version works fine
         (nsteps(ensemble) - start_nsteps) < max_nsteps &&
         (time() - start_time) < max_time
     )
-        transformed_mcmc_step!!(ensemble, tuner, tempering)
+        if nsteps(ensemble)%transformed_proposal_idx == 0
+            transformed_mcmc_trafo_proposal_step!!(ensemble, tempering)
+        else
+            transformed_mcmc_step!!(ensemble, tuner, tempering)
+        end
+
         callback(Val(:mcmc_step), ensemble)
-  
-        #TODO: output schemes
 
         current_time = time()
         elapsed_time = current_time - start_time

@@ -3,6 +3,7 @@ Pkg.activate(".")
 
 using Revise
 using Plots
+using AdaptiveFlows
 #include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/BAT.jl")
 using BAT
 
@@ -36,7 +37,6 @@ import BAT: CustomTransform, TransformedMCMCNoOpTuner
 using InverseFunctions
 using ArraysOfArrays
 using ValueShapes
-using AdaptiveFlows
 
 #include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Documents/eNormalizingFlows/FlowShowCase/Posterior.jl")
 #posterior = get_mix(2)
@@ -57,8 +57,7 @@ s = cholesky(Positive, BAT._approx_cov(density)).L
 f = BAT.CustomTransform(flow.flow.fs[2])
 
 #########################################################################################################################################################
- (f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
- 
+(f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
  function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingBlock, x::AbstractVector)
      #println("x",x)
      #println("type, flow", f.flow)
@@ -76,7 +75,8 @@ f = BAT.CustomTransform(flow.flow.fs[2])
  end
 ##########################################################################################################################################################
 y=BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(nsteps=100, init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f,
-                                                            tuning_alg=BAT.TransformedMCMCNoOpTuning()),context).result
+                                                            tuning_alg=BAT.TransformedMCMCNoOpTuning()),
+                                                            context).result
 
 plot(y)
 

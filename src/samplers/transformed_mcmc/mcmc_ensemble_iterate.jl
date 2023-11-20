@@ -77,6 +77,7 @@ function TransformedMCMCEnsembleIterator(
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
     f_inv = inverse(f)
 
+    global g_state = (f_inv, states[end])
     state_z = f_inv(states[end])
     
     iter = TransformedMCMCEnsembleIterator(

@@ -5,6 +5,9 @@
 (f::RQSplineCouplingModule)(x::ArrayOfSimilarArrays) = nestedview(f(flatview(x)))
 (f::RQSplineCouplingModule)(x::DensitySampleVector) = apply_flow_to_density_samples(f, x)
 (f::RQSplineCouplingModule)(x::ElasticArrays.ElasticMatrix) = f(Matrix(reshape(x[1], :, 1)))
+(f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
+(f::InverseRQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
+ 
 
 function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingModule, x::ArrayOfSimilarArrays)
     y, ladj = with_logabsdet_jacobian(f, Matrix(flatview(x)))
@@ -14,6 +17,20 @@ end
 function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingModule, x::SubArray)
     return with_logabsdet_jacobian(f, Vector(x))
 end    
+
+function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingBlock, x::AbstractVector)
+    y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
+    return vec(y), ladj[1]
+end
+
+(f::InverseRQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
+
+function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBlock, x::AbstractVector)
+    y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
+    return vec(y), ladj[1]
+end
+
+
 
 function Vector2Matrix(x::AbstractVector)::Matrix{Float64}
     zeilen = length(x[1])

@@ -4,7 +4,6 @@ Pkg.activate(".")
 using Revise
 using Plots
 using AdaptiveFlows
-#include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/BAT.jl")
 using BAT
 
 BAT._Plots_backend(args...; kwargs...) = Plots.backend(args...; kwargs...)
@@ -25,7 +24,6 @@ import BAT: TransformedMCMCIterator, TransformedAdaptiveMHTuning, TransformedRAM
 using Random123
 using PositiveFactorizations
 using AutoDiffOperators
-
 
 import BAT: mcmc_iterate!, transformed_mcmc_iterate!, TransformedMCMCSampling, plot, tuning_init!
 
@@ -50,30 +48,9 @@ flow(samples)
 #flow = optimize_flow_sequentially(samples,flow,Adam(1f-3)).result
 
 context = BATContext(ad = ADModule(:ForwardDiff))
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
 
-s = cholesky(Positive, BAT._approx_cov(density)).L
 f = BAT.CustomTransform(flow.flow.fs[2])
 
-#########################################################################################################################################################
-(f::RQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
- function ChangesOfVariables.with_logabsdet_jacobian(f::RQSplineCouplingBlock, x::AbstractVector)
-     #println("x",x)
-     #println("type, flow", f.flow)
-     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
-     return vec(y), ladj[1]
- end
- 
- (f::InverseRQSplineCouplingBlock)(x::AbstractVector) = vec(f(reshape(x, :, 1)))
- 
- function ChangesOfVariables.with_logabsdet_jacobian(f::InverseRQSplineCouplingBlock, x::AbstractVector)
-     #println("x",x)
-     #println("type, flow", f.flow)
-     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f, reshape(x, :, 1))
-     return vec(y), ladj[1]
- end
-##########################################################################################################################################################
 y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
@@ -87,6 +64,7 @@ plot(y)
 # Teste den neuen Tuner
 ####################################################################
 
+f = BAT.CustomTransform(flow)
 z = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
@@ -96,6 +74,13 @@ z = @time BAT.bat_sample_impl(posterior,
         context).result 
 
 
+
+
+
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
+
+s = cholesky(Positive, BAT._approx_cov(density)).L
 
 my_result = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(

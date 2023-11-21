@@ -54,7 +54,6 @@ _gen_chains(
     context::BATContext
 ) = [_construct_chain(rngpart, id, algorithm, density, initval_alg, context) for id in ids]
 
-g_state = (;)
 function mcmc_init!(
     algorithm::TransformedMCMCSampling,
     density::AbstractMeasureOrDensity,
@@ -115,7 +114,6 @@ function mcmc_init!(
 
             @debug "Testing $(length(new_chains)) candidate MCMC chain(s)."
 
-            global g_state = (new_chains,new_tuners,new_temperers)
             transformed_mcmc_iterate!(
                 new_chains, new_tuners, new_temperers#,
                # max_nsteps = clamp(div(init_alg.nsteps_init, 5), 10, 50),

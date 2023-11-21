@@ -77,7 +77,6 @@ function TransformedMCMCEnsembleIterator(
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
     f_inv = inverse(f)#_intern)
 
-    global g_state = (f_inv, states[end])
     state_z = f_inv(states[end])
     
     iter = TransformedMCMCEnsembleIterator(
@@ -133,7 +132,6 @@ function propose_mcmc(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
-#g_state = (;)
 
 function propose_mala(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
@@ -152,8 +150,6 @@ function propose_mala(
     ν = Transformed(μ_flat, inverse(f), TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
-    
-    #global g_state = (z_proposed, proposal)
 
     for i in 1:length(z) # make parallel?
         z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
@@ -268,7 +264,6 @@ function transformed_mcmc_step!!(
     return (iter, tuner_new, tempering_new)
 end
 
-g_state_flow_prop = (;)
 
 function transformed_mcmc_trafo_proposal_step!!(
     ensemble::TransformedMCMCEnsembleIterator,
@@ -284,8 +279,6 @@ function transformed_mcmc_trafo_proposal_step!!(
     state_z_proposed = bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
     x_proposed = f(unshaped.(state_z_proposed.v))
-
-    global g_state_flow_prop = (x_proposed, state_z_proposed, μ)
 
     logd_x_proposed = logdensityof(unshaped(μ)).(x_proposed)
 
@@ -377,15 +370,14 @@ function transformed_mcmc_iterate!(
     return nothing
 end
 
-t = []
+
 function transformed_mcmc_iterate!(
     chains::AbstractVector{<:MCMCIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
     temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
     kwargs...
 )
-    global t = tuners
-    Hallo2
+
     if isempty(chains)
         @debug "No MCMC ensemble(s) to iterate over."
         return chains
@@ -400,7 +392,7 @@ function transformed_mcmc_iterate!(
     return nothing
 end
 
-g_state = (;)
+
 function transformed_mcmc_iterate!(
     chains::AbstractVector{<:MCMCIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},

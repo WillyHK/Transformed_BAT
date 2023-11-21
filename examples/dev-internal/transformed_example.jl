@@ -50,7 +50,7 @@ context = BATContext(ad = ADModule(:ForwardDiff))
 ####################################################################
 # Test the MALA-Step without tuning
 ####################################################################
-f = BAT.CustomTransform(flow.flow.fs[2])
+f = BAT.CustomTransform(flow)
 y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 

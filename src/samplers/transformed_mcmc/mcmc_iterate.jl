@@ -56,8 +56,6 @@ end
 
 
 #ctor
-g_state = (;)
-
 function TransformedMCMCIterator(
     algorithm::TransformedMCMCSampling,
     target,
@@ -66,7 +64,6 @@ function TransformedMCMCIterator(
     context::BATContext,
 )
     rngpart_cycle = RNGPartition(get_rng(context), 0:(typemax(Int16) - 2))
-    global g_state=(v_init, target)
 
     μ = target
     proposal = algorithm.proposal
@@ -81,7 +78,6 @@ function TransformedMCMCIterator(
     sample_x = DensitySample(v_init, logd_x, 1, TransformedMCMCTransformedSampleID(id, 1, 0), nothing) # TODO
     inverse_g = inverse(g)
     z = vec(inverse_g(v_init)) # sample_x.v 
-    global g_state = (g=g,z=z, μ=μ,target=target, v_init=v_init)
 
     logd_z = logdensityof(MeasureBase.pullback(g, μ),z)
     sample_z = _rebuild_density_sample(sample_x, z, logd_z)
@@ -199,7 +195,6 @@ function transformed_mcmc_step!!(
     f_new = f_transform
 
     # iter_new = TransformedMCMCIterator(μ_new, f_new, proposal, samples_new, sample_z_new, stepno, n_accepted+Int(accepted), context)
-    global g_state = (;μ_new, f_new, samples_new, sample_z_new)
     iter.μ, iter.f_transform, iter.samples, iter.sample_z = μ_new, f_new, samples_new, sample_z_new
     iter.n_accepted += Int(accepted)
     iter.stepno += 1

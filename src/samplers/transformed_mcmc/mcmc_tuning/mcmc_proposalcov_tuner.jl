@@ -57,10 +57,7 @@ function tuning_postinit!(tuner::TransformedProposalCovTuner, chain::MCMCIterato
 end
 
 # this function is called once after each tuning cycle
-g_state = nothing
 function tuning_update!(tuner::TransformedProposalCovTuner, chain::TransformedMCMCIterator, samples::DensitySampleVector)
-    global g_state = (;tuner, chain)
-    
     stats = tuner.stats
     stats_reweight_factor = tuner.config.r
     reweight_relative!(stats, stats_reweight_factor)

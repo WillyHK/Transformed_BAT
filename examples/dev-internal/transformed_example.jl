@@ -38,19 +38,19 @@ using ValueShapes
 
 #include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Documents/eNormalizingFlows/FlowShowCase/Posterior.jl")
 #posterior = get_mix(2)
-#posterior = MvNormal(zeros(2),I(2))
 posterior = BAT.example_posterior()
+
 x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result 
+plot(x)
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
 flow=build_flow(samples)
-flow(samples)
-#flow = optimize_flow_sequentially(samples,flow,Adam(1f-3)).result
-
 context = BATContext(ad = ADModule(:ForwardDiff))
 
+####################################################################
+# Test the MALA-Step without tuning
+####################################################################
 f = BAT.CustomTransform(flow.flow.fs[2])
-
 y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
@@ -61,37 +61,24 @@ y = @time BAT.bat_sample_impl(posterior,
 plot(y)
 
 ####################################################################
-# Teste den neuen Tuner
+# Test the FlowTuner
 ####################################################################
-
 f = BAT.CustomTransform(flow)
 z = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=MCMCFlowTuning(), 
-            adaptive_transform=f, nchains=4, nsteps=100),
+            adaptive_transform=f, nchains=4, nsteps=20),
         context).result 
+plot(z)
 
 
 
 
-
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
-
-s = cholesky(Positive, BAT._approx_cov(density)).L
-
-my_result = @time BAT.bat_sample_impl(posterior, 
-        TransformedMCMCSampling(
-            pre_transform=PriorToGaussian(), 
-            init=TransformedMCMCEnsemblePoolInit(),
-            tuning_alg=TransformedMCMCNoOpTuning(), 
-            adaptive_transform=f, nchains=4, nsteps=100),
-        context).result 
-
-                 
-samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
+###############################
+# Old code below this
+###############################
 
 function flat2batsamples(smpls_flat)
     n = length(smpls_flat[:,1])
@@ -101,31 +88,11 @@ function flat2batsamples(smpls_flat)
     return BAT.DensitySampleVector(smpls, logvals, weight = weights)
 end
 
-function trainsample(posterior, flow)
-    f = BAT.CustomTransform(flow.flow.fs[2])
-    my_result =  BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedMCMCNoOpTuning(), adaptive_transform=f, nchains=4, nsteps=1000),context).result 
-    samples::Matrix{Float32} = flatview(unshaped.(my_result.v))
-    flow = optimize_flow_sequentially(samples,flow,Adam(1f-3),nbatches=10,nepochs=10,shuffle_samples=true).result
-    flow(samples)
-
-    return flow
-end
-
 n = bat_sample(MvNormal(zeros(7),I(7))).result
 normal::Matrix{Float32} = flatview(unshaped.(n.v))
 
-@time flow = trainsample(posterior,flow)
-
-using Plots
 samp = inverse(flow)(normal)
 plot(flat2batsamples(samp'))
-
-plot(x)
-plot(flat2batsamples(flow(flatview(unshaped.(x.v)))'))
-
-plot(my_result)
-#a, b, c, d = BAT.g_state
-g, z, μ, target, v_init = BAT.g_state
 
 using BenchmarkTools
 logd_z = @btime logdensityof(MeasureBase.pullback(g, μ),z)
@@ -153,42 +120,6 @@ end
 
 gg = inverse(g)
 
-
-x = [1,2,3,4,5,6.,7]
-init = [x,x]
-density, trafo = BAT.transform_and_unshape(BAT.PriorToGaussian(), posterior, context)
-i = BAT.TransformedMCMCEnsembleIterator(TransformedMCMCSampling(adaptive_transform=f),density,Int32(1),init,context)
-
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-density, trafo = BAT.transform_and_unshape(BAT.TransformedMCMCSampling().pre_transform, density_notrafo, context)
-
-BAT.transformed_mcmc_iterate!(i, BAT.TransformedMCMCNoOpTuner(),BAT.NoTransformedMCMCTemperingInstance())
-BAT.transformed_mcmc_iterate!(i, BAT.MCMCFlowTuner(),BAT.NoTransformedMCMCTemperingInstance())
-BAT.mcmc_init!(BAT.TransformedMCMCSampling(),density,1,BAT.TransformedMCMCChainPoolInit(),BAT.TransformedMCMCNoOpTuner(),false,
-BAT.TransformedMCMCSampling().callback,context)
-
-BAT.bat_sample_impl(posterior,BAT.TransformedMCMCSampling(init=BAT.TransformedMCMCEnsemblePoolInit(),adaptive_transform=f),context)
-
-
-try
-    flow = get_flow_musketeer(7,CPU(),10);#,10,10);
-    #flow = open(deserialize,"/ceph/groups/e4/users/wweber/private/Master/Plots/mix_dims_mySampler/2D_mix/flow.jls");
-    println(flow(samples)[:,1:3])
-    flow=inverse(flow)
-    println(flow(samples)[:,1:3])
-    f=  BAT.CustomTransform(flow)
-    #println(f.f)
-    my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(adaptive_transform=f), context).result
-    #plot(my_result.result)
-    #savefig("/ceph/groups/e4/users/wweber/private/Master/Code/BAT_trafo/test.pdf")
-    #flow(samples)
-  #  @time flow, hist = train(flow, samples, 1, 4f-3, 10,100);#, l = 4f-3, nbatches = 10, nepochs = 500, wanna_use_GPU = false)
-  #  samples2 = flow(samples)
-catch e
-    println(e)
-end
-
-#ENV["JULIA_DEBUG"] = "BAT"
 
 
 context = BATContext(ad = ADModule(:ForwardDiff))

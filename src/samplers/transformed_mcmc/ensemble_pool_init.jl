@@ -155,7 +155,8 @@ function mcmc_init!(
         if !isempty(viable_ensembles)
             desc_string = string("Init try ", init_tries, " for nvalid=", length(viable_tuners), " of min_nviable=", length(tuners), "/", min_nviable )
             progress_meter = ProgressMeter.Progress(length(viable_tuners) * init_alg.nsteps_init, desc=desc_string, barlen=80-length(desc_string), dt=0.1)
-            global g_state = (viable_ensembles)
+            global g_state = (viable_ensembles, viable_tuners, viable_temperers)
+
             transformed_mcmc_iterate!(
                 viable_ensembles, viable_tuners, viable_temperers;
                 max_nsteps = init_alg.nsteps_init,

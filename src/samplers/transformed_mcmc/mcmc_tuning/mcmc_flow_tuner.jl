@@ -36,14 +36,14 @@ end
 
 function tune_mcmc_transform!!(
     tuner::MCMCFlowTuner, 
-    flow::AdaptiveFlows.CompositeFlow,
+    flow::AdaptiveFlows.AbstractFlow,
     x::Vector,
     context::BATContext
 )   
     # TODO find better way to handle ElasticMatrices
-    #flow_new = AdaptiveFlows.optimize_flow_sequentially(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
-    global g_state =(x,flow)
-    flow_new = AdaptiveFlows.optimize_flow_sequentially(flatview(unshaped.(x)), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
+    # flow_new = AdaptiveFlows.optimize_flow_sequentially(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
+
+    flow_new = AdaptiveFlows.optimize_flow_sequentially(unshaped.(x), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
     tuner_new = tuner # might want to update the training parameters 
 
     return tuner_new, flow_new

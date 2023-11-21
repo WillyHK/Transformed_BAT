@@ -72,7 +72,6 @@ function TransformedMCMCEnsembleIterator(
 
     adaptive_transform_spec = algorithm.adaptive_transform
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
-    f_intern = f.flow.fs[2]
 
     logd_x = logdensityof(μ).(v_init)
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
@@ -84,7 +83,7 @@ function TransformedMCMCEnsembleIterator(
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
-        f,
+        inverse(f),
         proposal,
         states,
         state_z,
@@ -170,7 +169,7 @@ function propose_mala(
     state_x_proposed = _rebuild_density_sample_vector(last(states_x), x_proposed, logd_x_proposed)
     state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
 
-    return state_x_proposed, p_accept
+    return state_x_proposed, state_z_proposed, p_accept
 end
 
 function transformed_mcmc_step!!(
@@ -183,8 +182,11 @@ function transformed_mcmc_step!!(
     state_x = last(states_x)
     x, logd_x = state_x.v, state_x.logd
     z, logd_z = state_z.v, state_z.logd
+    
+    global g_state = (iter,tuner,tempering)
+    #asdf
 
-    state_x_proposed, state_z_proposed, p_accept = propose_mcmc(iter)
+    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
 
     z_proposed, logd_z_proposed = state_z_proposed.v, state_z_proposed.logd
     x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
@@ -215,7 +217,7 @@ function transformed_mcmc_step!!(
 
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 
-    f_new = f
+    f_new = inverse(f)
 
     iter.μ, iter.f, iter.states_x, iter.state_z = μ_new, f_new, states_x, state_z_new
     iter.n_accepted += Int.(accepted)
@@ -236,7 +238,7 @@ function transformed_mcmc_step!!(
     x, logd_x = unshaped.(state_x.v), state_x.logd
     vs = varshape(μ)
 
-    state_x_proposed, p_accept = propose_mala(iter)
+    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
 
     x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
 

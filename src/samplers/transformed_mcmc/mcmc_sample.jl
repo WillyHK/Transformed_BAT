@@ -143,7 +143,6 @@ function bat_sample_impl_ensemble(
 
     @unpack chains, tuners, temperers = init
 
-
     # output_init = reduce(vcat, getproperty(chains, :samples))
 
     burnin_outputs_coll = if algorithm.store_burnin
@@ -171,6 +170,8 @@ function bat_sample_impl_ensemble(
         density,
         algorithm,
         chains,
+        tuners,
+        temperers
     )
     samples_trafo, generator = run_sampling.result_trafo, run_sampling.generator
 
@@ -247,6 +248,8 @@ function _run_sample_impl_ensemble(
     density::AnyMeasureOrDensity,
     algorithm::TransformedMCMCSampling,
     chains::AbstractVector{<:MCMCIterator},
+    tuner,
+    temperer,
     ;description::AbstractString = "MCMC iterate"
 )
 
@@ -258,8 +261,8 @@ function _run_sample_impl_ensemble(
     for i in 1:algorithm.nsteps
         transformed_mcmc_iterate!(
             chains,
-            get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
-            get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
+            tuner,#get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
+            temperer, #get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
             max_nsteps = algorithm.nsteps, #TODO: maxtime
             nonzero_weights = algorithm.nonzero_weights,
             callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
@@ -270,10 +273,13 @@ function _run_sample_impl_ensemble(
 
     output = reduce(vcat, getproperty.(chains, :states_x))
     out = output[1]
+    sizehint!(out, length(output)*length(out))
+
+    global g_state=(out,output, varshape(density))
     for i in 2:length(output)
         append!(out,output[i])
     end
-    samples_trafo = varshape(density).(out)
+    samples_trafo = varshape(density).(out[1:end])
 
     (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end

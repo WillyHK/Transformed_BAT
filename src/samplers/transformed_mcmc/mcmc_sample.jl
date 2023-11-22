@@ -27,7 +27,7 @@ struct TransformedMCMCDispatch end
     proposal::TransformedMCMCProposal = TransformedMHProposal(Normal()) #TODO: use bat_defaults
     tempering = TransformedNoTransformedMCMCTempering() # TODO: use bat_defaults
     nchains::Int = 4
-    nsteps::Int = 10^4
+    nsteps::Int = 3*10^2#^4 # Why this eskalation?
     #TODO: max_time ?
     init::IN =  bat_default(TransformedMCMCDispatch, Val(:init), pre_transform, nchains, nsteps) #TransformedMCMCChainPoolInit()#TODO AC: use bat_defaults bat_default(MCMCSampling, Val(:init), MetropolisHastings(), pre_transform, nchains, nsteps) #TODO
     burnin::BI = bat_default(TransformedMCMCDispatch, Val(:burnin), pre_transform, nchains, nsteps)
@@ -232,6 +232,7 @@ function _run_sample_impl(
             callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
         )
     end
+
     ProgressMeter.finish!(progress_meter)
 
 

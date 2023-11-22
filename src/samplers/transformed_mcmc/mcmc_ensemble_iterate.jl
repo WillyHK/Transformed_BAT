@@ -14,6 +14,7 @@ mutable struct TransformedMCMCEnsembleIterator{
     states_x::SV
     state_z::S
     stepno::Int
+    n_walker::Int
     n_accepted::Vector{Int}
     info::TransformedMCMCIteratorInfo
     context::CTX
@@ -67,6 +68,7 @@ function TransformedMCMCEnsembleIterator(
     μ = target
     proposal = algorithm.proposal
     stepno = 1
+    n_walker=100
     cycle = 1
     n_accepted = zeros(Int64,length(v_init))
 
@@ -87,6 +89,7 @@ function TransformedMCMCEnsembleIterator(
         states,
         state_z,
         stepno,
+        n_walker,
         n_accepted,
         TransformedMCMCIteratorInfo(id, cycle, false, false),
         context
@@ -143,7 +146,7 @@ function propose_mala(
     z, logd_z = unshaped.(state_z.v), state_z.logd
     z_proposed = similar(z)
 
-    tau = 0.001
+    tau = 0.08
     n = size(z[1], 1)
 
     μ_flat = unshaped(μ)    
@@ -178,9 +181,6 @@ function transformed_mcmc_step!!(
     state_x = last(states_x)
     x, logd_x = state_x.v, state_x.logd
     z, logd_z = state_z.v, state_z.logd
-    
-    global g_state = (iter,tuner,tempering)
-    #asdf
 
     state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
 
@@ -276,9 +276,10 @@ function transformed_mcmc_trafo_proposal_step!!(
 
     state_x = last(states_x)
     x, logd_x = unshaped.(state_x.v), state_x.logd
-    state_z_proposed = bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
+    state_z_proposed = nestedview(rand(MvNormal(zeros(length(x[1])),I(length(x[1]))),length(x)))#bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
-    x_proposed = f(unshaped.(state_z_proposed.v))
+    global g_state = (state_z_proposed,f)
+    x_proposed = f(state_z_proposed)
 
     logd_x_proposed = logdensityof(unshaped(μ)).(x_proposed)
 
@@ -286,10 +287,12 @@ function transformed_mcmc_trafo_proposal_step!!(
 
     accepted = rand(rng, length(p_accept)) .<= p_accept
         
-    x_new, logd_x_new = x, logd_x
+    x_new = Vector{Any}(undef,length(x))
+    x_new::Vector{Any}, logd_x_new = x, logd_x
     x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
 
-    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new)))))
+    state_x_new = DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new))))
+    global g_state=(x_new,state_x_new)
     push!(states_x, state_x_new) 
 
     state_z_new = inverse(f)(state_x_new)
@@ -306,7 +309,7 @@ end
 
 function transformed_mcmc_iterate!(
     ensemble::TransformedMCMCEnsembleIterator,
-    tuner::TransformedAbstractMCMCTunerInstance,
+    tuner::MCMCFlowTuner,
     tempering::TransformedMCMCTemperingInstance;
     max_nsteps::Integer = 1,
     max_time::Real = Inf,
@@ -350,73 +353,99 @@ function transformed_mcmc_iterate!(
 end
 
 
+#function transformed_mcmc_iterate!(
+#    ensemble::MCMCIterator,
+#    tuner::TransformedAbstractMCMCTunerInstance,
+#    tempering::TransformedMCMCTemperingInstance;
+#    # tuner::TransformedAbstractMCMCTunerInstance;
+#    max_nsteps::Integer = 1,
+#    max_time::Real = Inf,
+#    nonzero_weights::Bool = true,
+#    callback::Function = nop_func
+#)
+#    cb = callback# combine_callbacks(tuning_callback(tuner), callback) #TODO CA: tuning_callback
+#    
+#    transformed_mcmc_iterate!(
+#        ensemble, tuner, tempering,
+#        max_nsteps = max_nsteps, max_time = max_time, nonzero_weights = nonzero_weights, callback = cb
+#    )
+#
+#    return nothing
+#end
+##
+##
+##function transformed_mcmc_iterate!(
+#    chains::AbstractVector{<:MCMCIterator},
+#    tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
+#    temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
+#    kwargs...
+#)
+#    if isempty(chains)
+#        @debug "No MCMC ensemble(s) to iterate over."
+#        return chains
+#    else
+#        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
+#    end
+#
+#    @sync for i in eachindex(chains, tuners, temperers)
+#        Base.Threads.@spawn transformed_mcmc_iterate!(chains[i], tuners[i], temperers[i]#= , tnrs[i] =#; kwargs...)
+#    end
+#
+#    return nothing
+#end
+#
+#
 function transformed_mcmc_iterate!(
-    ensemble::MCMCIterator,
-    tuner::TransformedAbstractMCMCTunerInstance,
-    tempering::TransformedMCMCTemperingInstance;
-    # tuner::TransformedAbstractMCMCTunerInstance;
-    max_nsteps::Integer = 1,
-    max_time::Real = Inf,
-    nonzero_weights::Bool = true,
-    callback::Function = nop_func
-)
-    cb = callback# combine_callbacks(tuning_callback(tuner), callback) #TODO CA: tuning_callback
-    
-    transformed_mcmc_iterate!(
-        ensemble, tuner, tempering,
-        max_nsteps = max_nsteps, max_time = max_time, nonzero_weights = nonzero_weights, callback = cb
-    )
-
-    return nothing
-end
-
-
-function transformed_mcmc_iterate!(
-    chains::AbstractVector{<:MCMCIterator},
+    ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
     temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
     kwargs...
 )
-
-    if isempty(chains)
+    if isempty(ensembles)
         @debug "No MCMC ensemble(s) to iterate over."
-        return chains
+        return ensembles
     else
-        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
-    end
-
-    @sync for i in eachindex(chains, tuners, temperers)
-        Base.Threads.@spawn transformed_mcmc_iterate!(chains[i], tuners[i], temperers[i]#= , tnrs[i] =#; kwargs...)
-    end
-
-    return nothing
-end
-
-
-function transformed_mcmc_iterate!(
-    chains::AbstractVector{<:MCMCIterator},
-    tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
-    temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
-    kwargs...
-)
-    if isempty(chains)
-        @debug "No MCMC ensemble(s) to iterate over."
-        return chains
-    else
-        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
+        @debug "Starting iteration over $(length(ensembles)) MCMC ensemble(s)"
     end
     
-    global g_state = (chains,tuners,temperers)
-    
-    for i in 1:length(chains)
-        transformed_mcmc_step!!(chains[i], tuners[i],temperers[i])
+    global g_state = (ensembles,tuners,temperers)
+    for i in 1:length(ensembles)
+        transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
     end
+    
     #TEST4
-    #transformed_mcmc_step!!(chains, tuners,temperers)
+    #transformed_mcmc_step!!(ensembles, tuners,temperers)
+    return nothing
+end
+
+function transformed_mcmc_iterate!(
+    ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
+    tuners::AbstractVector{<:MCMCFlowTuner},
+    temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
+    kwargs...
+)
+    if isempty(ensembles)
+        @debug "No MCMC ensemble(s) to iterate over."
+        return ensembles
+    else
+        @debug "Starting iteration over $(length(ensembles)) MCMC ensemble(s)"
+    end
+    
+    global g_state = (ensembles,tuners,temperers)
+    for i in 1:length(ensembles)
+        if rand() < 0.05
+            transformed_mcmc_trafo_proposal_step!!(ensembles[i],temperers[i])
+        else
+            transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
+        end
+    end
+    
+    #TEST4
+    #transformed_mcmc_step!!(ensembles, tuners,temperers)
     return nothing
 end
 #=
-# Unused?
+ #Unused?
 function reset_chain(
     rng::AbstractRNG,
     ensemble::TransformedMCMCEnsembleIterator,

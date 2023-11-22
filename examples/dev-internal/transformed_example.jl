@@ -40,7 +40,7 @@ using ValueShapes
 #posterior = get_mix(2)
 posterior = BAT.example_posterior()
 
-x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result 
+x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result
 plot(x)
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
@@ -73,8 +73,14 @@ z = @time BAT.bat_sample_impl(posterior,
         context).result 
 plot(z)
 
-
-
+for test in 1:100
+    p=[]
+    while test <length(z)
+        push!(p,z.v[test])
+        test=test+100
+    end
+    println(length(unique(p)))
+end
 
 ###############################
 # Old code below this

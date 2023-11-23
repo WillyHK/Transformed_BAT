@@ -75,8 +75,8 @@ plot(z)
 
 for test in 1:100
     p=[]
-    while test <length(z)
-        push!(p,z.v[test])
+    while test <length(y)
+        push!(p,y.v[test])
         test=test+100
     end
     println(length(unique(p)))

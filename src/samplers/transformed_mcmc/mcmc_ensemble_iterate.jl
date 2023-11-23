@@ -77,14 +77,13 @@ function TransformedMCMCEnsembleIterator(
 
     logd_x = logdensityof(μ).(v_init)
     states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
-    f_inv = inverse(f)#_intern)
 
-    state_z = f_inv(states[end])
+    state_z = f(states[end])
     
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
         target,
-        inverse(f),
+        f,
         proposal,
         states,
         state_z,
@@ -146,11 +145,11 @@ function propose_mala(
     z, logd_z = unshaped.(state_z.v), state_z.logd
     z_proposed = similar(z)
 
-    tau = 0.08
+    tau = 0.01
     n = size(z[1], 1)
 
     μ_flat = unshaped(μ)    
-    ν = Transformed(μ_flat, inverse(f), TDLADJCorr())
+    ν = Transformed(μ_flat, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
 
@@ -158,7 +157,7 @@ function propose_mala(
         z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
     end  
 
-    x_proposed = f(z_proposed)
+    x_proposed = inverse(f)(z_proposed)
 
     logd_x_proposed = BAT.checked_logdensityof(unshaped(μ)).(x_proposed)
     logd_z_proposed = log_ν.(z_proposed)
@@ -179,27 +178,24 @@ function transformed_mcmc_step!!(
     @unpack  μ, f, proposal, states_x, state_z, stepno, n_accepted, context = iter
     rng = get_rng(context)
     state_x = last(states_x)
-    x, logd_x = state_x.v, state_x.logd
+    x, logd_x = unshaped.(state_x.v), state_x.logd
     z, logd_z = state_z.v, state_z.logd
 
     state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
 
     z_proposed, logd_z_proposed = state_z_proposed.v, state_z_proposed.logd
     x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
-
-    tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z, stepno, context)
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
 
-    f_inv = inverse(f)
     n_walkers = length(z_proposed)
     x_new = Vector{Any}(undef, n_walkers)
     z_new = Vector{Vector{Float64}}(undef, n_walkers)
     logd_x_new = Vector{Float64}(undef, n_walkers)
     logd_z_new = Vector{Float64}(undef, n_walkers)
 
-    z_new_temp = nestedview(f_inv(flatview(unshaped.(x_proposed))))
-    x_inv_temp = nestedview(f_inv(hcat(unshaped.(x)...)))
+    z_new_temp = nestedview(f(flatview(unshaped.(x_proposed))))
+    x_inv_temp = nestedview(f(hcat(unshaped.(x)...)))
 
     accepted_neg = .! accepted 
     x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_new_temp[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
@@ -211,9 +207,16 @@ function transformed_mcmc_step!!(
 
     state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
 
+
+    if (tuner isa MCMCFlowTuner)
+        tuner_new, f_new = tune_mcmc_transform!!(tuner, f, unshaped.(state_x_new.v), context)
+        f=f_new.result
+    else
+        tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z, stepno, context)
+    end
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 
-    f_new = inverse(f)
+    f_new = f
 
     iter.μ, iter.f, iter.states_x, iter.state_z = μ_new, f_new, states_x, state_z_new
     iter.n_accepted += Int.(accepted)
@@ -222,49 +225,50 @@ function transformed_mcmc_step!!(
 
     return (iter, tuner_new, tempering_new)
 end
-
-function transformed_mcmc_step!!(
-    iter::TransformedMCMCEnsembleIterator,
-    tuner::MCMCFlowTuner,
-    tempering::TransformedMCMCTemperingInstance,
-)
-    @unpack  μ, f, states_x, stepno, context = iter
-    rng = get_rng(context)
-    state_x = last(states_x)
-    x, logd_x = unshaped.(state_x.v), state_x.logd
-    vs = varshape(μ)
-
-    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
-
-    x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
-
-    accepted = rand(rng, length(p_accept)) .<= p_accept
-        
-    x_new, logd_x_new = x, logd_x
-    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
-    x_new2 = Vector{Any}(x_new)
-
-    state_x_new = DensitySampleVector((x_new2, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
-    global g_state=(x_new2,state_x_new, states_x)
-    push!(states_x, state_x_new) 
-
-    tuner_new, f_inv_opt_res = tune_mcmc_transform!!(tuner, inverse(f), x_new, context)
-    
-    f_new = inverse(f_inv_opt_res.result)
-
-    state_z_new = inverse(f_new)(state_x_new)
-
-    tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
-
-    iter.μ, iter.f, iter.state_z = μ_new, f_new, state_z_new
-    iter.n_accepted += Int.(accepted)
-    iter.stepno += 1
-    @assert iter.context === context
-
-    return (iter, tuner_new, tempering_new)
-end
-
-
+#
+#function transformed_mcmc_step!!(
+#    iter::TransformedMCMCEnsembleIterator,
+#    tuner::MCMCFlowTuner,
+#    tempering::TransformedMCMCTemperingInstance,
+#)
+#    @unpack  μ, f, states_x, stepno, context = iter
+#    rng = get_rng(context)
+#    state_x = last(states_x)
+#    x, logd_x = unshaped.(state_x.v), state_x.logd
+#    vs = varshape(μ)
+#
+#    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
+#
+#    x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
+#
+#    accepted = rand(rng, length(p_accept)) .<= p_accept
+#        
+#    x_new, logd_x_new = x, logd_x
+#    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
+#    x_new2 = Vector{Any}(x_new)
+#
+#    state_x_new = DensitySampleVector((x_new2, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
+#    global g_state=(x_new2,state_x_new, states_x)
+#    push!(states_x, state_x_new) 
+#
+#    tuner_new, f_new = tune_mcmc_transform!!(tuner, f, x_new, context)
+#    
+#   # f_new = inverse(f_inv_opt_res.result)
+#
+#    f_new=f_new.result
+#    state_z_new = f_new(state_x_new)
+#
+#    tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
+#
+#    iter.μ, iter.f, iter.state_z = μ_new, f_new, state_z_new
+#    iter.n_accepted += Int.(accepted)
+#    iter.stepno += 1
+#    @assert iter.context === context
+#
+#    return (iter, tuner_new, tempering_new)
+#end
+##
+#
 function transformed_mcmc_trafo_proposal_step!!(
     ensemble::TransformedMCMCEnsembleIterator,
     tempering::TransformedMCMCTemperingInstance
@@ -433,7 +437,8 @@ function transformed_mcmc_iterate!(
     
     global g_state = (ensembles,tuners,temperers)
     for i in 1:length(ensembles)
-        if rand() < 0.05
+        if rand() < -0.05
+            println("Sample with flow")
             transformed_mcmc_trafo_proposal_step!!(ensembles[i],temperers[i])
         else
             transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])

@@ -69,14 +69,14 @@ z = @time BAT.bat_sample_impl(posterior,
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=MCMCFlowTuning(), 
-            adaptive_transform=f, nchains=4, nsteps=20),
+            adaptive_transform=f, nchains=4, nsteps=50),
         context).result 
 plot(z)
 
 for test in 1:100
     p=[]
-    while test <length(y)
-        push!(p,y.v[test])
+    while test <length(z)
+        push!(p,z.v[test])
         test=test+100
     end
     println(length(unique(p)))

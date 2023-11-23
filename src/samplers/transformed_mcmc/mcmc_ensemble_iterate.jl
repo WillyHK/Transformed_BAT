@@ -98,6 +98,7 @@ end
 
 function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
     @unpack info, aux = s
+    global g_state = (x, logd, weight, info, aux)
     DensitySampleVector((x, logd, weight, info, aux))
 end
 

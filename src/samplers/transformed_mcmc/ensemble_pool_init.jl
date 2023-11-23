@@ -38,10 +38,10 @@ function _construct_ensemble(
     algorithm::TransformedMCMCSampling,
     density::AbstractMeasureOrDensity,
     initval_alg::InitvalAlgorithm,
+    nwalker::Integer,
     parent_context::BATContext
 )
     new_context = set_rng(parent_context, AbstractRNG(rngpart, id))
-    nwalker = 100
     v_init= []
     for i in 1:nwalker
         append!(v_init,[bat_initval(density, initval_alg, new_context).result])
@@ -55,8 +55,9 @@ _gen_ensembles(
     algorithm::TransformedMCMCSampling,
     density::AbstractMeasureOrDensity,
     initval_alg::InitvalAlgorithm,
+    nwalker::Int,
     context::BATContext
-) = [_construct_ensemble(rngpart, id, algorithm, density, initval_alg, context) for id in ids]
+) = [_construct_ensemble(rngpart, id, algorithm, density, initval_alg, nwalker,context) for id in ids]
 
 g_state = (;)
 function mcmc_init!(
@@ -102,22 +103,23 @@ function mcmc_init!(
 
 
     init_tries::Int = 1
+    nwalker::Int = 100
 
-    while length(tuners) < min_nviable && ncandidates < max_ncandidates
+    #while length(tuners) < min_nviable && ncandidates < max_ncandidates
         viable_tuners = similar(tuners, 0)
         viable_ensembles = []#similar(states_x, 0) #TODO
         viable_temperers = similar(temperers, 0)
         viable_outputs = [] #similar(outputs, 0) #TODO
 
         # as the iteration after viable check is more costly, fill up to be at least capable to skip a complete reiteration.
-        while length(viable_tuners) < min_nviable-length(tuners) && ncandidates < max_ncandidates
+        #while length(viable_tuners) < min_nviable-length(tuners) && ncandidates < max_ncandidates
             n = min(min_nviable, max_ncandidates - ncandidates)
             @debug "Generating $n $(init_tries > 1 ? "additional " : "")candidate MCMC ensemble(s)."
 
-            new_ensembles = _gen_ensembles(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg, context)
+            new_ensembles = _gen_ensembles(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg,nwalker*10,context)
             #filter!(isvalidensemble, new_ensembles)
 
-            new_tuners = get_tuner.(Ref(tuning_alg), new_ensembles)
+            new_tuners = get_tuner.(Ref(TransformedMCMCNoOpTuning()),new_ensembles) # NoOpTuner for BurnIn
             new_temperers = fill(get_temperer(algorithm.tempering, density), size(new_tuners,1))
 
             next_cycle!.(new_ensembles)
@@ -127,14 +129,29 @@ function mcmc_init!(
 
             @debug "Testing $(length(new_ensembles)) candidate MCMC ensemble(s)."
 
-            global g_state = (new_ensembles,new_tuners,new_temperers)
+            nteststeps = 100
+            for i in 1:nteststeps
+                transformed_mcmc_iterate!(
+                    new_ensembles, new_tuners, new_temperers
+                )
+            end
 
-            transformed_mcmc_iterate!(
-                new_ensembles, new_tuners, new_temperers#,
-               # max_nsteps = clamp(div(init_alg.nsteps_init, 5), 10, 50),
-                #callback = callback,
-               # nonzero_weights = nonzero_weights
-            )
+            for ensemble in new_ensembles
+                mask = (ensemble.n_accepted .!= 0)
+                viable_walker = ensemble.states_x[end][mask]
+
+                #best = partialsortperm(ensemble.n_accepted,300:nwalker+299,rev=true)
+                global g_state = (viable_walker,ensemble.states_x)
+                choosen = rand(1:length(viable_walker),nwalker)
+                ensemble.states_x = [viable_walker[choosen]]#ensemble.states_x[end][best]]
+                ensemble.state_z = ensemble.state_z[mask][choosen]
+                ensemble.n_accepted = zeros(Int64,nwalker)
+                if(length(viable_walker)<nwalker)
+                    error("Found not enough good walker!")
+                end
+            end
+
+            new_tuners = get_tuner.(Ref(tuning_alg), new_ensembles)
 
             # testing if states_x are viable:
             viable_idxs = findall(isviablechain.(new_ensembles))
@@ -147,7 +164,11 @@ function mcmc_init!(
             viable_ensembles = new_ensembles[viable_idxs]
             append!(viable_outputs, new_outputs[viable_idxs])
             append!(viable_temperers, new_temperers[viable_idxs])
-        end
+        #end
+
+        global g_state =(chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
+        #slfdjsalfj
+        return (chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
 
 
         @debug "Found $(length(viable_tuners)) viable MCMC ensemble(s)."
@@ -176,7 +197,7 @@ function mcmc_init!(
         end
 
         init_tries += 1
-    end
+    #end
 
     outputs = getproperty.(states_x, :states_x)
 

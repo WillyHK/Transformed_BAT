@@ -106,10 +106,10 @@ function mcmc_init!(
     nwalker::Int = 100
 
     #while length(tuners) < min_nviable && ncandidates < max_ncandidates
-        viable_tuners = similar(tuners, 0)
-        viable_ensembles = []#similar(states_x, 0) #TODO
-        viable_temperers = similar(temperers, 0)
-        viable_outputs = [] #similar(outputs, 0) #TODO
+        #viable_tuners = similar(tuners, 0)
+        #viable_ensembles = []#similar(states_x, 0) #TODO
+        #viable_temperers = similar(temperers, 0)
+        #viable_outputs = [] #similar(outputs, 0) #TODO
 
         # as the iteration after viable check is more costly, fill up to be at least capable to skip a complete reiteration.
         #while length(viable_tuners) < min_nviable-length(tuners) && ncandidates < max_ncandidates
@@ -139,11 +139,9 @@ function mcmc_init!(
             for ensemble in new_ensembles
                 mask = (ensemble.n_accepted .!= 0)
                 viable_walker = ensemble.states_x[end][mask]
-
-                #best = partialsortperm(ensemble.n_accepted,300:nwalker+299,rev=true)
-                global g_state = (viable_walker,ensemble.states_x)
                 choosen = rand(1:length(viable_walker),nwalker)
-                ensemble.states_x = [viable_walker[choosen]]#ensemble.states_x[end][best]]
+
+                ensemble.states_x = [viable_walker[choosen]]
                 ensemble.state_z = ensemble.state_z[mask][choosen]
                 ensemble.n_accepted = zeros(Int64,nwalker)
                 if(length(viable_walker)<nwalker)
@@ -152,77 +150,78 @@ function mcmc_init!(
             end
 
             new_tuners = get_tuner.(Ref(tuning_alg), new_ensembles)
+            new_outputs = getproperty.(new_ensembles, :states_x) 
 
-            # testing if states_x are viable:
-            viable_idxs = findall(isviablechain.(new_ensembles))
-
-            new_outputs = getproperty.(new_ensembles, :states_x) #TODO ?
-            println(typeof(new_outputs))
-
-            append!(viable_tuners, new_tuners[viable_idxs])
-            #append!(viable_ensembles, new_ensembles[viable_idxs])
-            viable_ensembles = new_ensembles[viable_idxs]
-            append!(viable_outputs, new_outputs[viable_idxs])
-            append!(viable_temperers, new_temperers[viable_idxs])
-        #end
-
-        global g_state =(chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
-        #slfdjsalfj
         return (chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
-
-
-        @debug "Found $(length(viable_tuners)) viable MCMC ensemble(s)."
-
-        if !isempty(viable_ensembles)
-            desc_string = string("Init try ", init_tries, " for nvalid=", length(viable_tuners), " of min_nviable=", length(tuners), "/", min_nviable )
-            progress_meter = ProgressMeter.Progress(length(viable_tuners) * init_alg.nsteps_init, desc=desc_string, barlen=80-length(desc_string), dt=0.1)
-            global g_state = (viable_ensembles, viable_tuners, viable_temperers)
-
-            transformed_mcmc_iterate!(
-                viable_ensembles, viable_tuners, viable_temperers;
-                max_nsteps = init_alg.nsteps_init,
-                callback = (kwargs...)-> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
-                nonzero_weights = nonzero_weights
-            )
-            ProgressMeter.finish!(progress_meter)
-            nsamples_thresh = floor(Int, 0.8 * median([nsamples(ensemble) for ensemble in viable_ensembles]))
-            good_idxs = findall(ensemble -> nsamples(ensemble) >= nsamples_thresh, viable_ensembles)
-            @debug "Found $(length(viable_ensembles)) MCMC ensemble(s) with at least $(nsamples_thresh) unique accepted samples."
-
-            global g_state = (states_x,view(viable_ensembles, good_idxs))
-            #append!(states_x, view(viable_ensembles, good_idxs))
-            states_x = viable_ensembles
-            append!(tuners, view(viable_tuners, good_idxs))
-            append!(temperers, view(viable_temperers, good_idxs))
-        end
-
-        init_tries += 1
-    #end
-
-    outputs = getproperty.(states_x, :states_x)
-
-    length(states_x) < min_nviable && error("Failed to generate $min_nviable viable MCMC states_x")
-
-    m = nensembles
-    tidxs = LinearIndices(states_x)
-    n = length(tidxs)
-
-    # modes = hcat(broadcast(samples -> Array(bat_findmode(samples, MaxDensitySearch(), context).result), outputs)...)
-
-    final_ensembles = states_x
-    final_tuners =tuners
-    final_temperers =temperers
-
-    out::Vector{DensitySampleVector} = []
-    for i in 1:length(outputs)
-        x = outputs[i]
-        samples = x[1]
-        #for j in 2:length(x)
-        #    append!(samples,x[j])
-        #end
-        push!(out,samples)
-    end
-    final_outputs=out
+        
+#        # testing if states_x are viable:
+#            viable_idxs = findall(isviablechain.(new_ensembles))
+#
+#            new_outputs = getproperty.(new_ensembles, :states_x) #TODO ?
+#            println(typeof(new_outputs))
+#
+#            append!(viable_tuners, new_tuners[viable_idxs])
+#            #append!(viable_ensembles, new_ensembles[viable_idxs])
+#            viable_ensembles = new_ensembles[viable_idxs]
+#            append!(viable_outputs, new_outputs[viable_idxs])
+#            append!(viable_temperers, new_temperers[viable_idxs])
+#        #end
+#
+#
+#
+#
+#        @debug "Found $(length(viable_tuners)) viable MCMC ensemble(s)."
+#
+#        if !isempty(viable_ensembles)
+#            desc_string = string("Init try ", init_tries, " for nvalid=", length(viable_tuners), " of min_nviable=", length(tuners), "/", min_nviable )
+#            progress_meter = ProgressMeter.Progress(length(viable_tuners) * init_alg.nsteps_init, desc=desc_string, barlen=80-length(desc_string), dt=0.1)
+#            global g_state = (viable_ensembles, viable_tuners, viable_temperers)
+#
+#            transformed_mcmc_iterate!(
+#                viable_ensembles, viable_tuners, viable_temperers;
+#                max_nsteps = init_alg.nsteps_init,
+#                callback = (kwargs...)-> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
+#                nonzero_weights = nonzero_weights
+#            )
+#            ProgressMeter.finish!(progress_meter)
+#            nsamples_thresh = floor(Int, 0.8 * median([nsamples(ensemble) for ensemble in viable_ensembles]))
+#            good_idxs = findall(ensemble -> nsamples(ensemble) >= nsamples_thresh, viable_ensembles)
+#            @debug "Found $(length(viable_ensembles)) MCMC ensemble(s) with at least $(nsamples_thresh) unique accepted samples."
+#
+#            global g_state = (states_x,view(viable_ensembles, good_idxs))
+#            #append!(states_x, view(viable_ensembles, good_idxs))
+#            states_x = viable_ensembles
+#            append!(tuners, view(viable_tuners, good_idxs))
+#            append!(temperers, view(viable_temperers, good_idxs))
+#        end
+#
+#        init_tries += 1
+#    #end
+#
+#    outputs = getproperty.(states_x, :states_x)
+#
+#    length(states_x) < min_nviable && error("Failed to generate $min_nviable viable MCMC states_x")
+#
+#    m = nensembles
+#    tidxs = LinearIndices(states_x)
+#    n = length(tidxs)
+#
+#    # modes = hcat(broadcast(samples -> Array(bat_findmode(samples, MaxDensitySearch(), context).result), outputs)...)
+#
+#    final_ensembles = states_x
+#    final_tuners =tuners
+#    final_temperers =temperers
+#
+#    out::Vector{DensitySampleVector} = []
+#    for i in 1:length(outputs)
+#        x = outputs[i]
+#        samples = x[1]
+#        #for j in 2:length(x)
+#        #    append!(samples,x[j])
+#        #end
+#        push!(out,samples)
+#    end
+#    final_outputs=out
     #final_ensembles = similar(states_x, 0)
     #final_tuners = similar(tuners, 0)
     #final_temperers = similar(temperers, 0)

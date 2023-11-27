@@ -44,47 +44,60 @@ x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result
 plot(x)
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
-flow=build_flow(samples)
+
 context = BATContext(ad = ADModule(:ForwardDiff))
 
+n = bat_sample(MvNormal(zeros(7),I(7))).result
+normal::Matrix{Float32} = flatview(unshaped.(n.v))
+flow_n = build_flow(normal)
+flow_n = AdaptiveFlows.optimize_flow_sequentially(normal, flow_n, Adam(1f-3)).result
+
+plot(flat2batsamples(normal'))
+plot(flat2batsamples(flow_n(normal)'))
+
+f = BAT.CustomTransform(flow_n)
 ####################################################################
 # Test the MALA-Step without tuning
 ####################################################################
-f = BAT.CustomTransform(flow)
 y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=TransformedMCMCNoOpTuning(), 
-            adaptive_transform=f, nchains=4, nsteps=100),
+            adaptive_transform=f, 
+            nchains=4, nsteps=200),
         context).result 
 plot(y)
+
+for test in 1:100
+    p=[]
+    while test <length(y)
+        push!(p,y.v[test])
+        test=test+100
+    end
+    println(length(unique(p)))
+end
+println(length(unique(y.v))/length(y.v))
 
 ####################################################################
 # Test the FlowTuner
 ####################################################################
-f = BAT.CustomTransform(flow)
-z = @time BAT.bat_sample_impl(posterior, 
+zx = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=MCMCFlowTuning(), 
             adaptive_transform=f, nchains=4, nsteps=50),
-        context).result 
+        context)
+z=zx.result 
 plot(z)
 
-for test in 1:100
-    p=[]
-    while test <length(z)
-        push!(p,z.v[test])
-        test=test+100
-    end
-    println(length(unique(p)))
-end
 
-###############################
-# Old code below this
-###############################
+####################################################################
+# Well trained flow
+####################################################################
+flow=build_flow(samples)
+flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).result
 
 function flat2batsamples(smpls_flat)
     n = length(smpls_flat[:,1])
@@ -94,8 +107,14 @@ function flat2batsamples(smpls_flat)
     return BAT.DensitySampleVector(smpls, logvals, weight = weights)
 end
 
-n = bat_sample(MvNormal(zeros(7),I(7))).result
-normal::Matrix{Float32} = flatview(unshaped.(n.v))
+plot(flat2batsamples(samples'))
+plot(flat2batsamples(flow(samples)'))
+
+f = BAT.CustomTransform(flow)
+
+###############################
+# Old code below this
+###############################
 
 samp = inverse(flow)(normal)
 plot(flat2batsamples(samp'))

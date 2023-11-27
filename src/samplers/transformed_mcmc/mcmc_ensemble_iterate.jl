@@ -98,7 +98,6 @@ end
 
 function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
     @unpack info, aux = s
-    global g_state = (x, logd, weight, info, aux)
     DensitySampleVector((x, logd, weight, info, aux))
 end
 
@@ -131,7 +130,9 @@ function propose_mcmc(
 
     state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
     state_x_proposed = _rebuild_density_sample_vector(states_x, x_proposed, logd_x_proposed)
-
+    state_x_proposed, state_z_proposed, p_accept
+    global g_state= (state_x_proposed, state_z_proposed, p_accept)
+    #println("sdfs")
     return state_x_proposed, state_z_proposed, p_accept
 end
 
@@ -144,18 +145,22 @@ function propose_mala(
     AD_sel = context.ad
 
     z, logd_z = unshaped.(state_z.v), state_z.logd
+    logd_x = last(states_x).logd
+
     z_proposed = similar(z)
 
     tau = 0.01
     n = size(z[1], 1)
 
     μ_flat = unshaped(μ)    
-    ν = Transformed(μ_flat, f, TDLADJCorr())
+    ν = μ_flat#Transformed(μ_flat, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
 
     for i in 1:length(z) # make parallel?
-        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
+        #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
+        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
+        # @TODO: There is a bug in using Gradientinformation !
     end  
 
     x_proposed = inverse(f)(z_proposed)
@@ -163,7 +168,8 @@ function propose_mala(
     logd_x_proposed = BAT.checked_logdensityof(unshaped(μ)).(x_proposed)
     logd_z_proposed = log_ν.(z_proposed)
 
-    p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
+    #p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
+    p_accept = clamp.(exp.(logd_x_proposed-logd_x), 0, 1)
 
     state_x_proposed = _rebuild_density_sample_vector(last(states_x), x_proposed, logd_x_proposed)
     state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)

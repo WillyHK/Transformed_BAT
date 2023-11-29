@@ -224,8 +224,11 @@ function transformed_mcmc_step!!(
     if (tuner isa MCMCFlowTuner)
         tuner_new, f_new = tune_mcmc_transform!!(tuner, f, unshaped.(state_x_new.v), context)
         f=f_new.result
+        #tuner_new=TransformedMCMCNoOpTuning(), 
+        global g_state = (tuner_new, f)
     else
         tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z, stepno, context)
+        global g_state = (tuner_new, f)
     end
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 
@@ -282,52 +285,52 @@ function transformed_mcmc_trafo_proposal_step!!(
     return (ensemble, tempering_new)
 end
 
-function transformed_mcmc_iterate!(
-    ensemble::TransformedMCMCEnsembleIterator,
-    tuner::MCMCFlowTuner,
-    tempering::TransformedMCMCTemperingInstance;
-    max_nsteps::Integer = 1,
-    max_time::Real = Inf,
-    nonzero_weights::Bool = true,
-    callback::Function = nop_func,
-    transformed_proposal_idx::Integer = 10
-)
-    @debug "Starting iteration over MCMC ensemble $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
-
-    start_time = time()
-    last_progress_message_time = start_time
-    start_nsteps = nsteps(ensemble)
-    start_nsteps = nsteps(ensemble)
-
-    while (
-        (nsteps(ensemble) - start_nsteps) < max_nsteps &&
-        (time() - start_time) < max_time
-    )
-        if nsteps(ensemble)%transformed_proposal_idx == 0
-            transformed_mcmc_trafo_proposal_step!!(ensemble, tempering)
-        else
-            transformed_mcmc_step!!(ensemble, tuner, tempering)
-        end
-
-        callback(Val(:mcmc_step), ensemble)
-
-        current_time = time()
-        elapsed_time = current_time - start_time
-        logging_interval = 5 * round(log2(elapsed_time/60 + 1) + 1)
-        if current_time - last_progress_message_time > logging_interval
-            last_progress_message_time = current_time
-            @debug "Iterating over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) (of $(max_nsteps)) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time) so far."
-        end
-    end
-
-    current_time = time()
-    elapsed_time = current_time - start_time
-    @debug "Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time)."
-    println("Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time).")
-    return nothing
-end
-
-
+#function transformed_mcmc_iterate!(
+#    ensemble::TransformedMCMCEnsembleIterator,
+#    tuner::MCMCFlowTuner,
+#    tempering::TransformedMCMCTemperingInstance;
+#    max_nsteps::Integer = 1,
+#    max_time::Real = Inf,
+#    nonzero_weights::Bool = true,
+#    callback::Function = nop_func,
+#    transformed_proposal_idx::Integer = 10
+#)
+#    @debug "Starting iteration over MCMC ensemble $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
+#    
+#    start_time = time()
+#    last_progress_message_time = start_time
+#    start_nsteps = nsteps(ensemble)
+#    start_nsteps = nsteps(ensemble)
+#
+#    while (
+#        (nsteps(ensemble) - start_nsteps) < max_nsteps &&
+#        (time() - start_time) < max_time
+#    )
+#        if nsteps(ensemble)%transformed_proposal_idx == 0
+#            transformed_mcmc_trafo_proposal_step!!(ensemble, tempering)
+#        else
+#            transformed_mcmc_step!!(ensemble, tuner, tempering)
+#        end
+#
+#        callback(Val(:mcmc_step), ensemble)
+#
+#        current_time = time()
+#        elapsed_time = current_time - start_time
+#        logging_interval = 5 * round(log2(elapsed_time/60 + 1) + 1)
+#        if current_time - last_progress_message_time > logging_interval
+#            last_progress_message_time = current_time
+#            @debug "Iterating over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) (of $(max_nsteps)) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time) so far."
+#        end
+#    end
+#
+#    current_time = time()
+#    elapsed_time = current_time - start_time
+#    @debug "Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time)."
+#    println("Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time).")
+#    return nothing
+#end
+#
+#
 #function transformed_mcmc_iterate!(
 #    ensemble::MCMCIterator,
 #    tuner::TransformedAbstractMCMCTunerInstance,
@@ -370,7 +373,7 @@ end
 #end
 #
 #
-function transformed_mcmc_iterate!( # If NoOpTuner
+function transformed_mcmc_iterate!( 
     ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
     temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
@@ -386,7 +389,7 @@ function transformed_mcmc_iterate!( # If NoOpTuner
     
     global g_state = (ensembles,tuners,temperers)
     for i in 1:length(ensembles)
-        if rand() < 0.1
+        if rand() < -0.1
             # println("Sample with flow")
             transformed_mcmc_trafo_proposal_step!!(ensembles[i],temperers[i])
         else

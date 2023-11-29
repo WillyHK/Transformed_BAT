@@ -130,9 +130,7 @@ function propose_mcmc(
 
     state_z_proposed = _rebuild_density_sample_vector(state_z, z_proposed, logd_z_proposed)
     state_x_proposed = _rebuild_density_sample_vector(states_x, x_proposed, logd_x_proposed)
-    state_x_proposed, state_z_proposed, p_accept
-    global g_state= (state_x_proposed, state_z_proposed, p_accept)
-    #println("sdfs")
+
     return state_x_proposed, state_z_proposed, p_accept
 end
 
@@ -153,18 +151,26 @@ function propose_mala(
     n = size(z[1], 1)
 
     μ_flat = unshaped(μ)    
-    ν = μ_flat#Transformed(μ_flat, f, TDLADJCorr())
+    ν = Transformed(μ_flat, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
 
     for i in 1:length(z) # make parallel?
         #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
-        z_proposed[i] = z[i] + sqrt(2*tau) .* rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
+        z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) + tau .* ∇log_ν(z[i])
         # @TODO: There is a bug in using Gradientinformation !
     end  
 
     x_proposed = inverse(f)(z_proposed)
 
+    for i in 1:length(x_proposed)
+        if any(isnan.(x_proposed[i]))
+            x_proposed[i] = last(states_x).v[i]
+            println("Fucking NaN!")
+        end
+    end
+
+    global g_state = (z_proposed, f,x_proposed)
     logd_x_proposed = BAT.checked_logdensityof(unshaped(μ)).(x_proposed)
     logd_z_proposed = log_ν.(z_proposed)
 
@@ -232,50 +238,8 @@ function transformed_mcmc_step!!(
 
     return (iter, tuner_new, tempering_new)
 end
-#
-#function transformed_mcmc_step!!(
-#    iter::TransformedMCMCEnsembleIterator,
-#    tuner::MCMCFlowTuner,
-#    tempering::TransformedMCMCTemperingInstance,
-#)
-#    @unpack  μ, f, states_x, stepno, context = iter
-#    rng = get_rng(context)
-#    state_x = last(states_x)
-#    x, logd_x = unshaped.(state_x.v), state_x.logd
-#    vs = varshape(μ)
-#
-#    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
-#
-#    x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
-#
-#    accepted = rand(rng, length(p_accept)) .<= p_accept
-#        
-#    x_new, logd_x_new = x, logd_x
-#    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
-#    x_new2 = Vector{Any}(x_new)
-#
-#    state_x_new = DensitySampleVector((x_new2, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing, length(x_new))))
-#    global g_state=(x_new2,state_x_new, states_x)
-#    push!(states_x, state_x_new) 
-#
-#    tuner_new, f_new = tune_mcmc_transform!!(tuner, f, x_new, context)
-#    
-#   # f_new = inverse(f_inv_opt_res.result)
-#
-#    f_new=f_new.result
-#    state_z_new = f_new(state_x_new)
-#
-#    tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
-#
-#    iter.μ, iter.f, iter.state_z = μ_new, f_new, state_z_new
-#    iter.n_accepted += Int.(accepted)
-#    iter.stepno += 1
-#    @assert iter.context === context
-#
-#    return (iter, tuner_new, tempering_new)
-#end
-##
-#
+
+
 function transformed_mcmc_trafo_proposal_step!!(
     ensemble::TransformedMCMCEnsembleIterator,
     tempering::TransformedMCMCTemperingInstance
@@ -290,7 +254,7 @@ function transformed_mcmc_trafo_proposal_step!!(
     state_z_proposed = nestedview(rand(MvNormal(zeros(length(x[1])),I(length(x[1]))),length(x)))#bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
     global g_state = (state_z_proposed,f)
-    x_proposed = f(state_z_proposed)
+    x_proposed = inverse(f)(state_z_proposed)
 
     logd_x_proposed = logdensityof(unshaped(μ)).(x_proposed)
 
@@ -306,7 +270,7 @@ function transformed_mcmc_trafo_proposal_step!!(
     global g_state=(x_new,state_x_new)
     push!(states_x, state_x_new) 
 
-    state_z_new = inverse(f)(state_x_new)
+    state_z_new = f(state_x_new)
 
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 
@@ -406,35 +370,13 @@ end
 #end
 #
 #
-function transformed_mcmc_iterate!(
+function transformed_mcmc_iterate!( # If NoOpTuner
     ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
     tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
     temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
     kwargs...
 )
-    if isempty(ensembles)
-        @debug "No MCMC ensemble(s) to iterate over."
-        return ensembles
-    else
-        @debug "Starting iteration over $(length(ensembles)) MCMC ensemble(s)"
-    end
-    
-    global g_state = (ensembles,tuners,temperers)
-    for i in 1:length(ensembles)
-        transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
-    end
-    
-    #TEST4
-    #transformed_mcmc_step!!(ensembles, tuners,temperers)
-    return nothing
-end
 
-function transformed_mcmc_iterate!(
-    ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
-    tuners::AbstractVector{<:MCMCFlowTuner},
-    temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
-    kwargs...
-)
     if isempty(ensembles)
         @debug "No MCMC ensemble(s) to iterate over."
         return ensembles
@@ -444,33 +386,16 @@ function transformed_mcmc_iterate!(
     
     global g_state = (ensembles,tuners,temperers)
     for i in 1:length(ensembles)
-        if rand() < -0.05
-            println("Sample with flow")
+        if rand() < 0.1
+            # println("Sample with flow")
             transformed_mcmc_trafo_proposal_step!!(ensembles[i],temperers[i])
         else
             transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
         end
     end
-    
-    #TEST4
-    #transformed_mcmc_step!!(ensembles, tuners,temperers)
+
     return nothing
 end
-#=
- #Unused?
-function reset_chain(
-    rng::AbstractRNG,
-    ensemble::TransformedMCMCEnsembleIterator,
-)
-    rngpart_cycle = RNGPartition(rng, 0:(typemax(Int16) - 2))
-    #TODO reset cycle count?
-    ensemble.rngpart_cycle = rngpart_cycle
-    ensemble.info = TransformedMCMCEnsembleIteratorInfo(ensemble.info, cycle=0)
-    ensemble.context = set_rng(ensemble.context, rng)
-    # wants a next_cycle!
-    # reset_rng_counters!(ensemble)
-end
-=#
 
 
 function reset_rng_counters!(ensemble::TransformedMCMCEnsembleIterator)

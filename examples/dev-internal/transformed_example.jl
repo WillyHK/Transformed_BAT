@@ -36,9 +36,9 @@ using InverseFunctions
 using ArraysOfArrays
 using ValueShapes
 
-#include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Documents/eNormalizingFlows/FlowShowCase/Posterior.jl")
-#posterior = get_mix(2)
-posterior = BAT.example_posterior()
+include("../../examples/ExamplePosterior.jl")
+posterior = get_kamm(3)
+#posterior = BAT.example_posterior()
 
 x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result
 plot(x)
@@ -47,10 +47,19 @@ samples::Matrix{Float32} = flatview(unshaped.(x.v))
 
 context = BATContext(ad = ADModule(:ForwardDiff))
 
-n = bat_sample(MvNormal(zeros(7),I(7))).result
+d = length(x.v[1])
+n = bat_sample(MvNormal(zeros(d),I(d))).result
 normal::Matrix{Float32} = flatview(unshaped.(n.v))
 flow_n = build_flow(normal)
 flow_n = AdaptiveFlows.optimize_flow_sequentially(normal, flow_n, Adam(1f-3)).result
+
+function flat2batsamples(smpls_flat)
+    n = length(smpls_flat[:,1])
+    smpls = [smpls_flat[i,1:end] for i in 1:n]
+    weights = ones(length(smpls))
+    logvals = zeros(length(smpls))
+    return BAT.DensitySampleVector(smpls, logvals, weight = weights)
+end
 
 plot(flat2batsamples(normal'))
 plot(flat2batsamples(flow_n(normal)'))
@@ -64,7 +73,7 @@ y = @time BAT.bat_sample_impl(posterior,
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=TransformedMCMCNoOpTuning(), 
-            adaptive_transform=f, 
+            adaptive_transform=f,
             nchains=4, nsteps=200),
         context).result 
 plot(y)
@@ -87,10 +96,12 @@ zx = @time BAT.bat_sample_impl(posterior,
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=MCMCFlowTuning(), 
-            adaptive_transform=f, nchains=4, nsteps=50),
+            adaptive_transform=f,
+            nchains=4, nsteps=200),
         context)
 z=zx.result 
 plot(z)
+println(length(unique(z.v))/length(z.v))
 
 
 ####################################################################
@@ -98,14 +109,6 @@ plot(z)
 ####################################################################
 flow=build_flow(samples)
 flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).result
-
-function flat2batsamples(smpls_flat)
-    n = length(smpls_flat[:,1])
-    smpls = [smpls_flat[i,1:end] for i in 1:n]
-    weights = ones(length(smpls))
-    logvals = zeros(length(smpls))
-    return BAT.DensitySampleVector(smpls, logvals, weight = weights)
-end
 
 plot(flat2batsamples(samples'))
 plot(flat2batsamples(flow(samples)'))
@@ -128,8 +131,7 @@ l = @btime logdensityof(x);
 logd_z = @btime l(z);
 
 z2 = rand(posterior.prior);
-logd_z = 
-logdensityof(posterior)(z2)
+logd_z = logdensityof(posterior)(z2)
 
 l = logdensityof(MeasureBase.pullback(g, μ));
 

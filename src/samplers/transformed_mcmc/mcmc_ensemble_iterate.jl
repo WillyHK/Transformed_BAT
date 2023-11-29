@@ -157,9 +157,13 @@ function propose_mala(
 
     for i in 1:length(z) # make parallel?
         #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
-        z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) + tau .* ∇log_ν(z[i])
+        z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
         # @TODO: There is a bug in using Gradientinformation !
     end  
+
+    logd_z_proposed = log_ν.(z_proposed)
+    #logd_z_proposed = logdensityof.(MeasureBase.pullback(f, μ), z_proposed)
+    #global g_state=(logd_z_proposed,logd_z_proposed_2)
 
     x_proposed = inverse(f)(z_proposed)
 
@@ -170,9 +174,7 @@ function propose_mala(
         end
     end
 
-    global g_state = (z_proposed, f,x_proposed)
     logd_x_proposed = BAT.checked_logdensityof(unshaped(μ)).(x_proposed)
-    logd_z_proposed = log_ν.(z_proposed)
 
     #p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
     p_accept = clamp.(exp.(logd_x_proposed-logd_x), 0, 1)

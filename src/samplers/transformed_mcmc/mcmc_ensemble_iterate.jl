@@ -155,10 +155,14 @@ function propose_mala(
     log_ν = BAT.checked_logdensityof(ν)
     ∇log_ν = gradient_func(log_ν, AD_sel)
 
-    for i in 1:length(z) # make parallel?
-        #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
-        z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
-        # @TODO: There is a bug in using Gradientinformation !
+    for i in 1:length(z)
+        if (rand() < (1/length(z_proposed)))
+            z_proposed[i] = rand(MvNormal(zeros(length(z[i])),I(length(z[i]))))
+        else
+            #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
+            z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
+            # @TODO: There is a bug in using Gradientinformation !
+        end
     end  
 
     logd_z_proposed = log_ν.(z_proposed)
@@ -184,6 +188,7 @@ function propose_mala(
 
     return state_x_proposed, state_z_proposed, p_accept
 end
+
 
 function transformed_mcmc_step!!(
     iter::TransformedMCMCEnsembleIterator,
@@ -391,12 +396,7 @@ function transformed_mcmc_iterate!(
     
     global g_state = (ensembles,tuners,temperers)
     for i in 1:length(ensembles)
-        if rand() < -0.1
-            # println("Sample with flow")
-            transformed_mcmc_trafo_proposal_step!!(ensembles[i],temperers[i])
-        else
-            transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
-        end
+        transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
     end
 
     return nothing

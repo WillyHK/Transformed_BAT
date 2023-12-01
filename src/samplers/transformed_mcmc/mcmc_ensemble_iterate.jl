@@ -111,12 +111,12 @@ function propose_mcmc(
     states_x = last(states_x)
     x, logd_x = states_x.v, states_x.logd
     z, logd_z = flatview(unshaped.(state_z.v)), state_z.logd
-
+    f_inv = inverse(f)
     n, m = size(z)
 
     z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
         
-    x_proposed, ladj = with_logabsdet_jacobian(f, z_proposed)
+    x_proposed, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
 
     z_proposed = nestedview(z_proposed)
     x_proposed = nestedview(x_proposed)
@@ -124,7 +124,7 @@ function propose_mcmc(
     logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
     logd_z_proposed = logd_x_proposed + vec(ladj)
 
-    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f, μ)).(z_proposed) #TODO: remove
+    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_inv, μ)).(z_proposed) #TODO: remove
 
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
@@ -141,6 +141,7 @@ function propose_mala(
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
     rng = get_rng(context)
     AD_sel = context.ad
+    f_inv = inverse(f)
 
     z, logd_z = unshaped.(state_z.v), state_z.logd
     logd_x = last(states_x).logd
@@ -160,7 +161,7 @@ function propose_mala(
             z_proposed[i] = rand(MvNormal(zeros(length(z[i])),I(length(z[i]))))
         else
             #z_proposed[i] = z[i] + sqrt(2*tau) .* rand(rng, proposal.proposal_dist, n) + tau .* ∇log_ν(z[i])
-            z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #+ tau .* ∇log_ν(z[i])
+            z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) + tau .* ∇log_ν(z[i])
             # @TODO: There is a bug in using Gradientinformation !
         end
     end  
@@ -169,7 +170,7 @@ function propose_mala(
     #logd_z_proposed = logdensityof.(MeasureBase.pullback(f, μ), z_proposed)
     #global g_state=(logd_z_proposed,logd_z_proposed_2)
 
-    x_proposed = inverse(f)(z_proposed)
+    x_proposed = f_inv(z_proposed)
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))
@@ -210,7 +211,7 @@ function transformed_mcmc_step!!(
     x_new, logd_x_new = unshaped.(state_x.v), state_x.logd
     z_new, logd_z_new = unshaped.(state_z.v), state_z.logd
 
-    x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_new_temp[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
+    x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_proposed[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
 
     state_x_new = vs.(DensitySampleVector((x_new, logd_x_new,ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing,length(x_new)))))
 
@@ -248,6 +249,8 @@ function transformed_mcmc_trafo_proposal_step!!(
     rng = get_rng(context)
     vs = varshape(μ)
     proposal_dist = proposal.proposal_dist
+    f_inv = inverse(f)
+
     state_x = last(states_x)
     x, logd_x = unshaped.(state_x.v), state_x.logd
     z, logd_z = unshaped.(state_z.v), state_z.logd
@@ -255,7 +258,7 @@ function transformed_mcmc_trafo_proposal_step!!(
     state_z_proposed = nestedview(rand(MvNormal(zeros(length(x[1])),I(length(x[1]))),length(x)))#bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
     global g_state = (state_z_proposed,f)
-    x_proposed = inverse(f)(state_z_proposed)
+    x_proposed = f_inv(state_z_proposed)
 
     logd_x_proposed = logdensityof(unshaped(μ)).(x_proposed)
 
@@ -266,7 +269,7 @@ function transformed_mcmc_trafo_proposal_step!!(
     x_new, logd_x_new = unshaped.(state_x.v), state_x.logd
     z_new, logd_z_new = unshaped.(state_z.v), state_z.logd
 
-    x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_new_temp[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
+    x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_proposed[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
 
     state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new)))))
     push!(states_x, state_x_new) 

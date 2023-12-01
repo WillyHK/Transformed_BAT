@@ -197,9 +197,8 @@ function transformed_mcmc_step!!(
 )
     @unpack  μ, f, proposal, states_x, state_z, stepno, n_accepted, context = iter
     rng = get_rng(context)
+    vs = varshape(μ)
     state_x = last(states_x)
-    x, logd_x = unshaped.(state_x.v), state_x.logd
-    z, logd_z = state_z.v, state_z.logd
 
     state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
 
@@ -208,25 +207,16 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
 
-    n_walkers = length(z_proposed)
-    x_new = Vector{Any}(undef, n_walkers)
-    z_new = Vector{Vector{Float64}}(undef, n_walkers)
-    logd_x_new = Vector{Float64}(undef, n_walkers)
-    logd_z_new = Vector{Float64}(undef, n_walkers)
+    x_new, logd_x_new = unshaped.(state_x.v), state_x.logd
+    z_new, logd_z_new = unshaped.(state_z.v), state_z.logd
 
-    z_new_temp = nestedview(f(flatview(unshaped.(x_proposed))))
-    x_inv_temp = nestedview(f(hcat(unshaped.(x)...)))
-
-    accepted_neg = .! accepted 
     x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_new_temp[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
-    x_new[accepted_neg], z_new[accepted_neg], logd_x_new[accepted_neg], logd_z_new[accepted_neg] = x[accepted_neg], x_inv_temp[accepted_neg], logd_x[accepted_neg], logd_z[accepted_neg]
 
-    state_x_new = DensitySampleVector((x_new,logd_x_new,ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno),length(x_new)), fill(nothing,length(x_new))))
+    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new,ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(iter.info.id, iter.info.cycle, iter.stepno), length(x_new)), fill(nothing,length(x_new)))))
 
     push!(states_x, state_x_new) 
 
-    state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
-
+    state_z_new = vs.(_rebuild_density_sample_vector(state_z, z_new, logd_z_new))
 
     if (tuner isa MCMCFlowTuner)
         tuner_new, f_new = tune_mcmc_transform!!(tuner, f, unshaped.(state_x_new.v), context)
@@ -254,13 +244,14 @@ function transformed_mcmc_trafo_proposal_step!!(
     ensemble::TransformedMCMCEnsembleIterator,
     tempering::TransformedMCMCTemperingInstance
 )
-    @unpack  μ, f, proposal, states_x, stepno, context = ensemble
+    @unpack  μ, f, proposal, states_x, state_z, stepno, context = ensemble
     rng = get_rng(context)
     vs = varshape(μ)
     proposal_dist = proposal.proposal_dist
-
     state_x = last(states_x)
     x, logd_x = unshaped.(state_x.v), state_x.logd
+    z, logd_z = unshaped.(state_z.v), state_z.logd
+
     state_z_proposed = nestedview(rand(MvNormal(zeros(length(x[1])),I(length(x[1]))),length(x)))#bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
     global g_state = (state_z_proposed,f)
@@ -272,15 +263,15 @@ function transformed_mcmc_trafo_proposal_step!!(
 
     accepted = rand(rng, length(p_accept)) .<= p_accept
         
-    x_new = Vector{Any}(undef,length(x))
-    x_new::Vector{Any}, logd_x_new = x, logd_x
-    x_new[accepted], logd_x_new[accepted] = x_proposed[accepted], logd_x_proposed[accepted]
+    x_new, logd_x_new = unshaped.(state_x.v), state_x.logd
+    z_new, logd_z_new = unshaped.(state_z.v), state_z.logd
 
-    state_x_new = DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new))))
-    global g_state=(x_new,state_x_new)
+    x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_new_temp[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
+
+    state_x_new = vs.(DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new)))))
     push!(states_x, state_x_new) 
 
-    state_z_new = f(state_x_new)
+    state_z_new = vs.(_rebuild_density_sample_vector(state_z, z_new, logd_z_new))
 
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 

@@ -31,7 +31,6 @@ function apply_trafo_to_init(trafo::Function, initalg::TransformedMCMCEnsemblePo
 end
 
 
-
 function _construct_ensemble(
     rngpart::RNGPartition,
     id::Integer,
@@ -42,10 +41,12 @@ function _construct_ensemble(
     parent_context::BATContext
 )
     new_context = set_rng(parent_context, AbstractRNG(rngpart, id))
-    v_init= []
+    v_init = nestedview(ElasticArray{Float64}(undef, totalndof(density), 0))
+    
     for i in 1:nwalker
-        append!(v_init,[bat_initval(density, initval_alg, new_context).result])
+        push!(v_init, bat_initval(density, initval_alg, new_context).result)
     end
+
     return TransformedMCMCEnsembleIterator(algorithm, density, Int32(id), v_init, new_context)
 end
 
@@ -84,9 +85,10 @@ function mcmc_init!(
     @debug "Generating dummy MCMC ensemble to determine ensemble, output and tuner types." #TODO: remove!
 
     dummy_context = deepcopy(context)
-    dummy_initval = [unshaped(bat_initval(density, InitFromTarget(), dummy_context).result, varshape(density))]
+    dummy_init_state = nestedview(ElasticArray{Float64}(undef, totalndof(density), 0))
+    push!(dummy_init_state, bat_initval(density, InitFromTarget(), dummy_context).result)
 
-    dummy_ensemble = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_initval, dummy_context) 
+    dummy_ensemble = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_init_state, dummy_context) 
     dummy_tuner = get_tuner(tuning_alg, dummy_ensemble)
     dummy_temperer = get_temperer(algorithm.tempering, density)
 
@@ -96,7 +98,7 @@ function mcmc_init!(
 
 
     transformed_mcmc_iterate!(
-        states_x,tuners,temperers
+        states_x, tuners, temperers
     )
 
     outputs = []
@@ -119,7 +121,7 @@ function mcmc_init!(
             new_ensembles = _gen_ensembles(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg,nwalker*10,context)
             #filter!(isvalidensemble, new_ensembles)
 
-            new_tuners = get_tuner.(Ref(TransformedMCMCNoOpTuning()),new_ensembles) # NoOpTuner for BurnIn
+            new_tuners = get_tuner.(Ref(tuning_alg),new_ensembles) # NoOpTuner for BurnIn
             new_temperers = fill(get_temperer(algorithm.tempering, density), size(new_tuners,1))
 
             next_cycle!.(new_ensembles)
@@ -151,6 +153,7 @@ function mcmc_init!(
 
             new_tuners = get_tuner.(Ref(tuning_alg), new_ensembles)
             new_outputs = getproperty.(new_ensembles, :states_x) 
+            
 
         return (chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
         
@@ -275,8 +278,8 @@ function mcmc_init!(
 #        copyto!(final_outputs, outputs)
 #    end
 
-    @info "Selected $(length(final_ensembles)) MCMC ensemble(s)."
+    #@info "Selected $(length(final_ensembles)) MCMC ensemble(s)."
     #tuning_postinit!.(final_tuners, final_ensembles, final_outputs) #TODO: implement
 
-    (chains = final_ensembles, tuners = final_tuners, temperers = final_temperers, outputs = final_outputs)
+    #(chains = final_ensembles, tuners = final_tuners, temperers = final_temperers, outputs = final_outputs)
 end

@@ -15,8 +15,11 @@ function ChangesOfVariables.with_logabsdet_jacobian(f::AdaptiveFlows.AbstractFlo
     return with_logabsdet_jacobian(f, Vector(x))
 end    
 
+g_state = (;)
+
 function apply_flow_to_density_samples(f::AdaptiveFlows.AbstractFlow, x::DensitySampleVector)
     v_flat = flatview(x.v)
+    global g_state = (v_flat, x)
     y, ladj = with_logabsdet_jacobian(f, Matrix(v_flat))
     return DensitySampleVector((nestedview(y), x.logd - vec(ladj), x.weight,  x.aux, x.info))
 end

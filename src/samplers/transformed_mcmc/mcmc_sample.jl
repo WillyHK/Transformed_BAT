@@ -60,8 +60,7 @@ function bat_sample_impl(
         return bat_sample_impl_ensemble(target,algorithm,context)
     end
 
-    density_notrafo = convert(AbstractMeasureOrDensity, target)
-    density, trafo = transform_and_unshape(algorithm.pre_transform, density_notrafo, context)
+    density, trafo = transform_and_unshape(algorithm.pre_transform, target, context)
 
     init = mcmc_init!(
         algorithm,
@@ -74,11 +73,7 @@ function bat_sample_impl(
         context
     )
 
-    global g_state = (init)
-
     @unpack chains, tuners, temperers = init
-
-    # output_init = reduce(vcat, getproperty(chains, :samples))
 
     burnin_outputs_coll = if algorithm.store_burnin
         DensitySampleVector(first(chains))
@@ -126,14 +121,14 @@ function bat_sample_impl_ensemble(
     context::BATContext
 )  
 
-    density_notrafo = convert(AbstractMeasureOrDensity, target)
-    density, trafo = transform_and_unshape(algorithm.pre_transform, density_notrafo, context)
+    density, pre_trafo = transform_and_unshape(algorithm.pre_transform, target, context)
+    vs = varshape(target)
 
     init = mcmc_init!(
         algorithm,
         density,
         algorithm.nchains,
-        apply_trafo_to_init(trafo, algorithm.init),
+        apply_trafo_to_init(pre_trafo, algorithm.init),
         algorithm.tuning_alg,
         algorithm.nonzero_weights,
         algorithm.store_burnin ? algorithm.callback : nop_func,
@@ -142,8 +137,6 @@ function bat_sample_impl_ensemble(
     
 
     @unpack chains, tuners, temperers = init
-
-    # output_init = reduce(vcat, getproperty(chains, :samples))
 
     burnin_outputs_coll = if algorithm.store_burnin
         DensitySampleVector(first(chains))
@@ -166,27 +159,25 @@ function bat_sample_impl_ensemble(
 
 
     # sampling
-    run_sampling  = _run_sample_impl_ensemble(
+    run_sampling = _run_sample_impl_ensemble(
         density,
         algorithm,
         chains,
         tuners,
         temperers
     )
-    samples_trafo, generator = run_sampling.result_trafo, run_sampling.generator
 
+    samples_trafo, generator = run_sampling.result_trafo, run_sampling.generator
 
     # prepend burnin samples to output
     if algorithm.store_burnin
-        burnin_samples_trafo = varshape(density).(burnin_outputs_coll)
-        append!(burnin_samples_trafo, samples_trafo)
-        samples_trafo = burnin_samples_trafo
+        burnin_samples_trafo = burnin_outputs_coll
+        prepend!(samples_trafo, burnin_samples_trafo)
     end
 
-    samples_notrafo = inverse(trafo).(samples_trafo)
-    
+    samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
 
-    (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
 
 
@@ -243,7 +234,7 @@ function _run_sample_impl(
     (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
 
-
+g_state_post_iterate = (;)
 
 function _run_sample_impl_ensemble(
     density::AnyMeasureOrDensity,
@@ -271,16 +262,7 @@ function _run_sample_impl_ensemble(
     end
     ProgressMeter.finish!(progress_meter)
 
+    output = reduce(vcat, getfield.(chains, :states_x))
 
-    output = reduce(vcat, getproperty.(chains, :states_x))
-    out = output[1]
-    sizehint!(out, length(output)*length(out))
-
-    global g_state=(out,output, varshape(density))
-    for i in 2:length(output)
-        append!(out,output[i])
-    end
-    samples_trafo = varshape(density).(out[1:end])
-
-    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    (result_trafo = output, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end

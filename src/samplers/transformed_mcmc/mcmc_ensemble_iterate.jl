@@ -54,6 +54,7 @@ function TransformedMCMCEnsembleIterator(
     TransformedMCMCEnsembleIterator(algorithm, target, Int32(id), v_init, context)
 end
 
+g_state_iterator_init = (;)
 
 export TransformedMCMCEnsembleIterator
 function TransformedMCMCEnsembleIterator(
@@ -75,8 +76,10 @@ function TransformedMCMCEnsembleIterator(
     adaptive_transform_spec = algorithm.adaptive_transform
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
 
+    global g_state_iterator_init = (v_init)
+
     logd_x = logdensityof(μ).(v_init)
-    states = DensitySampleVector.([(v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x)))])
+    states = [DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))]
 
     state_z = f(states[end])
     
@@ -184,7 +187,7 @@ function propose_mala(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
-
+    
 function transformed_mcmc_step!!(
     iter::TransformedMCMCEnsembleIterator,
     tuner::TransformedAbstractMCMCTunerInstance,
@@ -212,11 +215,13 @@ function transformed_mcmc_step!!(
 
     state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
 
+
     if (tuner isa MCMCFlowTuner)
         tuner_new, f_new = tune_mcmc_transform!!(tuner, f, state_x_new.v, context)
         f=f_new.result
     else
-        tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z, stepno, context)
+        tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z_new, stepno, context)
+        # should this take the old z state?
     end
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
 

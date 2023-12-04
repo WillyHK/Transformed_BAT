@@ -116,14 +116,36 @@ plot(flat2batsamples(flow(samples)'))
 f = BAT.CustomTransform(flow)
 
 ###############################
+# Test Version without flow
+###############################
+
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+density2, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
+
+s = cholesky(Positive, BAT._approx_cov(density2)).L
+f = BAT.CustomTransform(Mul(s))
+
+my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=NoOpTuning(), nchains=4, nsteps=4*100000, adaptive_transform=f), context)
+my_samples = my_result.result
+plot(my_samples)
+
+
+
+###############################
 # Old code below this
 ###############################
 
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+density2, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
+μ = density2
 samp = inverse(flow)(normal)
 plot(flat2batsamples(samp'))
 
 using BenchmarkTools
-logd_z = @btime logdensityof(MeasureBase.pullback(g, μ),z)
+z=[1,2.3,3]
+logd_z = @btime logdensityof(MeasureBase.pullback(flow_n, μ),z)
+logd_z = @btime logdensityof(BAT.Transformed( μ, flow_n),z)
+
 
 #g2 = BAT.CustomTransform(Mul(s))
 x = @btime MeasureBase.pullback(g, μ);
@@ -149,27 +171,9 @@ gg = inverse(g)
 
 
 
-context = BATContext(ad = ADModule(:ForwardDiff))
-
-#posterior = BAT.example_posterior()
-
-my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), nchains=4, nsteps=4*100000), context)
 
 
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
-
-s = cholesky(Positive, BAT._approx_cov(density)).L
-f = BAT.CustomTransform(Mul(s))
-
-my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedAdaptiveMHTuning(), nchains=4, nsteps=4*100000, adaptive_transform=f), context)
-
-my_samples = my_result.result
-
-
-
-using Plots
-plot(my_samples)
+my_result2 = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), nchains=4, nsteps=4*100000), context)
 
 r_mh = @time BAT.bat_sample_impl(posterior, MCMCSampling( nchains=4, nsteps=4*100000, store_burnin=true), context)
 

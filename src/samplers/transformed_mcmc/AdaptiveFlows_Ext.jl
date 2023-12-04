@@ -30,9 +30,8 @@ function Vector2Matrix(x::AbstractVector)::Matrix{Float64}
 end
 
 function apply_flow_to_density_samples(f::AdaptiveFlows.AbstractFlow, x::DensitySampleVector)
-    v_flat = unshaped.(x.v)
-    y_flat, ladj = with_logabsdet_jacobian(f, Vector2Matrix(v_flat))
-    y = [y_flat[1:end,i] for i in 1:size(y_flat)[2]]
-
-    return DensitySampleVector((y, vec(x.logd .- transpose(ladj)), x.weight,  x.aux, x.info))
+    vs = varshape(x)
+    v_flat = flatview(unshaped.(x.v))
+    y, ladj = with_logabsdet_jacobian(f, Matrix(v_flat))
+    return vs.(DensitySampleVector((nestedview(y), x.logd - vec(ladj), x.weight,  x.aux, x.info)))
 end

@@ -42,10 +42,11 @@ function _construct_ensemble(
     parent_context::BATContext
 )
     new_context = set_rng(parent_context, AbstractRNG(rngpart, id))
-    v_init= []
+    v_init= Vector{Vector{Float64}}(undef,nwalker)
     for i in 1:nwalker
-        append!(v_init,[bat_initval(density, initval_alg, new_context).result])
+        v_init[i]=bat_initval(density, initval_alg, new_context).result
     end
+    #v_init = nestedview(hcat(v_init))
     return TransformedMCMCEnsembleIterator(algorithm, density, Int32(id), v_init, new_context)
 end
 

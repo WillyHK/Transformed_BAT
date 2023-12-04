@@ -28,7 +28,7 @@ mcmc_info(ensemble::TransformedMCMCEnsembleIterator) = ensemble.info
 
 nsteps(ensemble::TransformedMCMCEnsembleIterator) = ensemble.stepno
 
-nsamples(ensemble::TransformedMCMCEnsembleIterator) = length(ensemble.states_x) # @TODO
+nsamples(ensemble::TransformedMCMCEnsembleIterator) = length(ensemble.states_x) * length(ensemble.states_x[1]) # @TODO
 
 current_ensemble(ensemble::TransformedMCMCEnsembleIterator) = last(ensemble.states_x)
 
@@ -54,9 +54,8 @@ function TransformedMCMCEnsembleIterator(
     TransformedMCMCEnsembleIterator(algorithm, target, Int32(id), v_init, context)
 end
 
-g_state_iterator_init = (;)
-
 export TransformedMCMCEnsembleIterator
+
 function TransformedMCMCEnsembleIterator(
     algorithm::TransformedMCMCSampling,
     target,
@@ -75,8 +74,6 @@ function TransformedMCMCEnsembleIterator(
 
     adaptive_transform_spec = algorithm.adaptive_transform
     f = init_adaptive_transform(adaptive_transform_spec, μ, context)
-
-    global g_state_iterator_init = (v_init)
 
     logd_x = logdensityof(μ).(v_init)
     states = [DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))]
@@ -97,13 +94,6 @@ function TransformedMCMCEnsembleIterator(
         context
     )
 end
-
-
-function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
-    @unpack info, aux = s
-    DensitySampleVector((x, logd, weight, info, aux))
-end
-
 
 function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
@@ -247,7 +237,7 @@ function transformed_mcmc_trafo_proposal_step!!(
 
     state_x = last(states_x)
 
-    state_z_proposed = nestedview(rand(MvNormal(zeros(length(x[1])),I(length(x[1]))),length(x)))#bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
+    state_z_proposed = bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
 
     x_proposed = f_inv(state_z_proposed)
 
@@ -276,94 +266,6 @@ function transformed_mcmc_trafo_proposal_step!!(
 
     return (ensemble, tempering_new)
 end
-
-#function transformed_mcmc_iterate!(
-#    ensemble::TransformedMCMCEnsembleIterator,
-#    tuner::MCMCFlowTuner,
-#    tempering::TransformedMCMCTemperingInstance;
-#    max_nsteps::Integer = 1,
-#    max_time::Real = Inf,
-#    nonzero_weights::Bool = true,
-#    callback::Function = nop_func,
-#    transformed_proposal_idx::Integer = 10
-#)
-#    @debug "Starting iteration over MCMC ensemble $(mcmc_info(ensemble).id) with $max_nsteps steps in max. $(@sprintf "%.1f seconds." max_time)"
-#    
-#    start_time = time()
-#    last_progress_message_time = start_time
-#    start_nsteps = nsteps(ensemble)
-#    start_nsteps = nsteps(ensemble)
-#
-#    while (
-#        (nsteps(ensemble) - start_nsteps) < max_nsteps &&
-#        (time() - start_time) < max_time
-#    )
-#        if nsteps(ensemble)%transformed_proposal_idx == 0
-#            transformed_mcmc_trafo_proposal_step!!(ensemble, tempering)
-#        else
-#            transformed_mcmc_step!!(ensemble, tuner, tempering)
-#        end
-#
-#        callback(Val(:mcmc_step), ensemble)
-#
-#        current_time = time()
-#        elapsed_time = current_time - start_time
-#        logging_interval = 5 * round(log2(elapsed_time/60 + 1) + 1)
-#        if current_time - last_progress_message_time > logging_interval
-#            last_progress_message_time = current_time
-#            @debug "Iterating over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) (of $(max_nsteps)) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time) so far."
-#        end
-#    end
-#
-#    current_time = time()
-#    elapsed_time = current_time - start_time
-#    @debug "Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time)."
-#    println("Finished iteration over MCMC ensemble $(mcmc_info(ensemble).id), completed $(nsteps(ensemble) - start_nsteps) steps and produced $(nsteps(ensemble) - start_nsteps) samples in $(@sprintf "%.1f s" elapsed_time).")
-#    return nothing
-#end
-#
-#
-#function transformed_mcmc_iterate!(
-#    ensemble::MCMCIterator,
-#    tuner::TransformedAbstractMCMCTunerInstance,
-#    tempering::TransformedMCMCTemperingInstance;
-#    # tuner::TransformedAbstractMCMCTunerInstance;
-#    max_nsteps::Integer = 1,
-#    max_time::Real = Inf,
-#    nonzero_weights::Bool = true,
-#    callback::Function = nop_func
-#)
-#    cb = callback# combine_callbacks(tuning_callback(tuner), callback) #TODO CA: tuning_callback
-#    
-#    transformed_mcmc_iterate!(
-#        ensemble, tuner, tempering,
-#        max_nsteps = max_nsteps, max_time = max_time, nonzero_weights = nonzero_weights, callback = cb
-#    )
-#
-#    return nothing
-#end
-##
-##
-##function transformed_mcmc_iterate!(
-#    chains::AbstractVector{<:MCMCIterator},
-#    tuners::AbstractVector{<:TransformedAbstractMCMCTunerInstance},
-#    temperers::AbstractVector{<:TransformedMCMCTemperingInstance};
-#    kwargs...
-#)
-#    if isempty(chains)
-#        @debug "No MCMC ensemble(s) to iterate over."
-#        return chains
-#    else
-#        @debug "Starting iteration over $(length(chains)) MCMC ensemble(s)"
-#    end
-#
-#    @sync for i in eachindex(chains, tuners, temperers)
-#        Base.Threads.@spawn transformed_mcmc_iterate!(chains[i], tuners[i], temperers[i]#= , tnrs[i] =#; kwargs...)
-#    end
-#
-#    return nothing
-#end
-
 
 function transformed_mcmc_iterate!( 
     ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},
@@ -412,4 +314,9 @@ function next_cycle!(
     ensemble.states_x[1].info[1] = TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno)
     
     ensemble
+end
+
+function _rebuild_density_sample_vector(s::DensitySampleVector, x, logd, weight=ones(length(x)))
+    @unpack info, aux = s
+    DensitySampleVector((x, logd, weight, info, aux))
 end

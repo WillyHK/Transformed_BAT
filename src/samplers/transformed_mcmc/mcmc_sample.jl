@@ -114,6 +114,7 @@ function bat_sample_impl(
     (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
 
+g_state_post_algorithm = (;)
 
 function bat_sample_impl_ensemble(
     target::AnyMeasureOrDensity,
@@ -175,6 +176,8 @@ function bat_sample_impl_ensemble(
         prepend!(samples_trafo, burnin_samples_trafo)
     end
 
+    global g_state_post_algorithm = (pre_trafo, samples_trafo, vs, density, algorithm, chains, tuners, temperers, target, context)
+
     samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
 
     (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
@@ -233,8 +236,6 @@ function _run_sample_impl(
 
     (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
-
-g_state_post_iterate = (;)
 
 function _run_sample_impl_ensemble(
     density::AnyMeasureOrDensity,

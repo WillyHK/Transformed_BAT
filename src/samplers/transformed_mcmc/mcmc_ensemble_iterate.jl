@@ -158,6 +158,8 @@ function propose_mala(
 
     logd_z_proposed = log_ν.(z_proposed)
 
+    global g_state = (z_proposed,BAT.checked_logdensityof(μ))
+
     x_proposed = f_inv(z_proposed)
 
     for i in 1:length(x_proposed)
@@ -194,8 +196,8 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
 
-    x_new, logd_x_new = state_x.v, state_x.logd
-    z_new, logd_z_new = state_z.v, state_z.logd
+    x_new, logd_x_new = copy(state_x.v), copy(state_x.logd)
+    z_new, logd_z_new = copy(state_z.v), copy(state_z.logd)
 
     x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_proposed[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
 
@@ -210,7 +212,8 @@ function transformed_mcmc_step!!(
         tuner_new, f_new = tune_mcmc_transform!!(tuner, f, state_x_new.v, context)
         f=f_new.result
     else
-        tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, z_new, stepno, context)
+        global g_state = (tuner, f, p_accept, z_proposed, state_z.v, stepno, context)
+        tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, state_z.v, stepno, context)
         # should this take the old z state?
     end
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)

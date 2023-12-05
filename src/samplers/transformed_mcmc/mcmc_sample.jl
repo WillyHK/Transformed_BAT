@@ -27,7 +27,7 @@ struct TransformedMCMCDispatch end
     proposal::TransformedMCMCProposal = TransformedMHProposal(Normal()) #TODO: use bat_defaults
     tempering = TransformedNoTransformedMCMCTempering() # TODO: use bat_defaults
     nchains::Int = 4
-    nsteps::Int = 3*10^2#^4 # Why this eskalation?
+    nsteps::Int = 3*10#^2#^4 # Why this eskalation?
     #TODO: max_time ?
     init::IN =  bat_default(TransformedMCMCDispatch, Val(:init), pre_transform, nchains, nsteps) #TransformedMCMCChainPoolInit()#TODO AC: use bat_defaults bat_default(MCMCSampling, Val(:init), MetropolisHastings(), pre_transform, nchains, nsteps) #TODO
     burnin::BI = bat_default(TransformedMCMCDispatch, Val(:burnin), pre_transform, nchains, nsteps)
@@ -122,7 +122,7 @@ function bat_sample_impl_ensemble(
     context::BATContext
 )  
 
-    density, pre_trafo = transform_and_unshape(algorithm.pre_transform, target, context)
+    density, pre_trafo = transform_and_unshape(algorithm.pre_transform, convert(AbstractMeasureOrDensity, target), context)
     vs = varshape(target)
 
     init = mcmc_init!(
@@ -178,7 +178,8 @@ function bat_sample_impl_ensemble(
 
     global g_state_post_algorithm = (pre_trafo, samples_trafo, vs, density, algorithm, chains, tuners, temperers, target, context)
 
-    samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
+    samples_notrafo = inverse(pre_trafo).(samples_trafo)
+    #samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
 
     (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
@@ -263,7 +264,19 @@ function _run_sample_impl_ensemble(
     end
     ProgressMeter.finish!(progress_meter)
 
-    output = reduce(vcat, getfield.(chains, :states_x))
+    output = copy(chains[1].states_x[1])
+    for chain in chains
+        for i in 1:length(chain.states_x)
+            append!(output,chain.states_x[i])
+        end
+    end
 
-    (result_trafo = output, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    samples_trafo = varshape(density).(output[1:end])
+
+    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
+#
+#    output = reduce(vcat, getfield.(chains, :states_x))
+#
+#    (result_trafo = output, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+#end

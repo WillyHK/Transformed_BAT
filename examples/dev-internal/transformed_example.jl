@@ -77,15 +77,6 @@ y = @time BAT.bat_sample_impl(posterior,
             nchains=4, nsteps=200),
         context).result 
 plot(y)
-
-for test in 1:100
-    p=[]
-    while test <length(y)
-        push!(p,y.v[test])
-        test=test+100
-    end
-    println(length(unique(p)))
-end
 println(length(unique(y.v))/length(y.v))
 
 ####################################################################

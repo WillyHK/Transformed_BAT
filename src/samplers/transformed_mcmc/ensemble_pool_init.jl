@@ -89,7 +89,7 @@ function mcmc_init!(
     push!(dummy_init_state, bat_initval(density, InitFromTarget(), dummy_context).result)
 
     dummy_ensemble = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_init_state, dummy_context) 
-    dummy_tuner = get_tuner(tuning_alg, dummy_ensemble)
+    dummy_tuner = get_tuner(tuning_alg, dummy_ensemble) #
     dummy_temperer = get_temperer(algorithm.tempering, density)
 
     states_x = similar([dummy_ensemble], 0)
@@ -121,7 +121,7 @@ function mcmc_init!(
             new_ensembles = _gen_ensembles(rngpart, ncandidates .+ (one(Int64):n), algorithm, density, initval_alg,nwalker*10,context)
             #filter!(isvalidensemble, new_ensembles)
 
-            new_tuners = get_tuner.(Ref(tuning_alg),new_ensembles) # NoOpTuner for BurnIn
+            new_tuners = get_tuner.(Ref(TransformedMCMCNoOpTuning()),new_ensembles) # NoOpTuner for BurnIn
             new_temperers = fill(get_temperer(algorithm.tempering, density), size(new_tuners,1))
 
             next_cycle!.(new_ensembles)
@@ -152,8 +152,7 @@ function mcmc_init!(
             end
 
             new_tuners = get_tuner.(Ref(tuning_alg), new_ensembles)
-            new_outputs = getproperty.(new_ensembles, :states_x) 
-            
+            new_outputs = getproperty.(new_ensembles, :states_x)             
 
         return (chains = new_ensembles, tuners = new_tuners, temperers = new_temperers, outputs = new_outputs)
         

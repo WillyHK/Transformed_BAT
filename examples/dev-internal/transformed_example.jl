@@ -40,7 +40,7 @@ include("../../examples/ExamplePosterior.jl")
 posterior = get_kamm(3)
 #posterior = BAT.example_posterior()
 
-x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false)).result
+x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false, nsteps = 10^2)).result # @TODO: Why are there so many samples?
 plot(x)
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
@@ -94,11 +94,11 @@ z=zx.result
 plot(z)
 println(length(unique(z.v))/length(z.v))
 
-
 ####################################################################
 # Well trained flow
 ####################################################################
-flow=build_flow(samples)
+flow=build_flow(normal) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
+samples = samples ./ std(samples)
 flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).result
 
 plot(flat2batsamples(samples'))
@@ -116,8 +116,16 @@ plot(flat2batsamples(samp'))
 using BenchmarkTools
 logd_z = @btime logdensityof(MeasureBase.pullback(g, μ),z)
 
-#g2 = BAT.CustomTransform(Mul(s))
-x = @btime MeasureBase.pullback(g, μ);
+
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
+
+s = cholesky(Positive, BAT._approx_cov(densit)).L
+f = BAT.CustomTransform(Mul(s))
+
+
+g= BAT.CustomTransform(Mul(s))
+x = @btime MeasureBase.pullback(g, posterior)
 l = @btime logdensityof(x);
 logd_z = @btime l(z);
 
@@ -147,11 +155,6 @@ context = BATContext(ad = ADModule(:ForwardDiff))
 my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), nchains=4, nsteps=4*100000), context)
 
 
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-density, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
-
-s = cholesky(Positive, BAT._approx_cov(density)).L
-f = BAT.CustomTransform(Mul(s))
 
 my_result = @time BAT.bat_sample_impl(posterior, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedAdaptiveMHTuning(), nchains=4, nsteps=4*100000, adaptive_transform=f), context)
 

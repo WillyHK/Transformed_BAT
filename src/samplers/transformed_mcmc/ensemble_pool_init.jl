@@ -89,7 +89,7 @@ function mcmc_init!(
     push!(dummy_init_state, bat_initval(density, InitFromTarget(), dummy_context).result)
 
     dummy_ensemble = TransformedMCMCEnsembleIterator(algorithm, density, Int32(1), dummy_init_state, dummy_context) 
-    dummy_tuner = get_tuner(tuning_alg, dummy_ensemble) #
+    dummy_tuner = get_tuner(tuning_alg, dummy_ensemble)
     dummy_temperer = get_temperer(algorithm.tempering, density)
 
     states_x = similar([dummy_ensemble], 0)

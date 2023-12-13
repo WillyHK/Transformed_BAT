@@ -58,6 +58,7 @@ end
 
 export TransformedMCMCEnsembleIterator
 
+
 function TransformedMCMCEnsembleIterator(
     algorithm::TransformedMCMCSampling,
     target,
@@ -83,7 +84,7 @@ function TransformedMCMCEnsembleIterator(
     states = [DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))]
 
     global g_state = (f,states)
-    state_z = states[end]# f(states[end])
+    state_z = states[end]#f(states[end])
     
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,

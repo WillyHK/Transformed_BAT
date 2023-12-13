@@ -60,7 +60,7 @@ samples::Matrix{Float32} = flatview(unshaped.(x.v))
 ####################################################################
 # Ensembles without flow
 ####################################################################
-function EnsembleSampling(posterior, f,mala=true)
+function EnsembleSampling(posterior, f,mala=true, tuning=TransformedMCMCNoOpTuning())
     y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
@@ -81,6 +81,7 @@ s = cholesky(Positive, BAT._approx_cov(densit)).L
 mul = BAT.CustomTransform(Mul(s))
 
 EnsembleSampling(posterior,mul,false)
+#EnsembleSampling(posterior,mul,true)
 
 ####################################################################
 # Flow trained to identity
@@ -106,7 +107,7 @@ plot(flat2batsamples(flow_n(normal)'))
 f = BAT.CustomTransform(flow_n)
 
 ####################################################################
-# Test the MALA-Step without tuning
+# Test the Flow without tuning
 ####################################################################
 EnsembleSampling(posterior,f,false) # MC prop.
 EnsembleSampling(posterior,f,true)
@@ -114,17 +115,8 @@ EnsembleSampling(posterior,f,true)
 ####################################################################
 # Test the FlowTuner
 ####################################################################
-zx = @time BAT.bat_sample_impl(posterior, 
-        TransformedMCMCSampling(
-            pre_transform=PriorToGaussian(), 
-            init=TransformedMCMCEnsemblePoolInit(),
-            tuning_alg=MCMCFlowTuning(), 
-            adaptive_transform=f,
-            nchains=4, nsteps=2500),
-        context)
-z=zx.result 
-plot(z)
-println(length(unique(z.v))/length(z.v))
+EnsembleSampling(posterior,f,false,MCMCFlowTuning()) # MC prop.
+EnsembleSampling(posterior,f,true,MCMCFlowTuning()) 
 
 ####################################################################
 # Well trained flow
@@ -136,8 +128,12 @@ flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).resul
 plot(flat2batsamples(samples'))
 plot(flat2batsamples(flow(samples)'))
 
-f = BAT.CustomTransform(flow)
+f2 = BAT.CustomTransform(flow)
 
+EnsembleSampling(posterior,f2,false) # MC prop.
+EnsembleSampling(posterior,f2,true)
+EnsembleSampling(posterior,f2,false,MCMCFlowTuning()) # MC prop.
+EnsembleSampling(posterior,f2,true,MCMCFlowTuning()) 
 ###############################
 # Old code below this
 ###############################

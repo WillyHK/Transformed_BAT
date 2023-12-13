@@ -28,6 +28,9 @@ struct TransformedMCMCDispatch end
     tempering = TransformedNoTransformedMCMCTempering() # TODO: use bat_defaults
     nchains::Int = 4
     nsteps::Int = 3*10^4
+    use_mala::Bool = true
+    tau::Float64 = 0.01
+    nwalker::Int = 100
     #TODO: max_time ?
     init::IN =  bat_default(TransformedMCMCDispatch, Val(:init), pre_transform, nchains, nsteps) #TransformedMCMCChainPoolInit()#TODO AC: use bat_defaults bat_default(MCMCSampling, Val(:init), MetropolisHastings(), pre_transform, nchains, nsteps) #TODO
     burnin::BI = bat_default(TransformedMCMCDispatch, Val(:burnin), pre_transform, nchains, nsteps)

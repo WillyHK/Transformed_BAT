@@ -15,6 +15,8 @@ mutable struct TransformedMCMCEnsembleIterator{
     state_z::S
     stepno::Int
     n_walker::Int
+    tau::Float64
+    use_mala::Bool
     n_accepted::Vector{Int}
     info::TransformedMCMCIteratorInfo
     context::CTX
@@ -68,7 +70,9 @@ function TransformedMCMCEnsembleIterator(
     μ = target
     proposal = algorithm.proposal
     stepno = 1
-    n_walker=100
+    n_walker= algorithm.nwalker
+    tau = algorithm.tau
+    use_mala = algorithm.use_mala
     cycle = 1
     n_accepted = zeros(Int64,length(v_init))
 
@@ -78,7 +82,8 @@ function TransformedMCMCEnsembleIterator(
     logd_x = BAT.checked_logdensityof(μ).(v_init)
     states = [DensitySampleVector((v_init, logd_x, ones(length(logd_x)), fill(TransformedMCMCTransformedSampleID(id, 1, 0),length(logd_x)), fill(nothing,length(logd_x))))]
 
-    state_z = f(states[end])
+    global g_state = (f,states)
+    state_z = states[end]# f(states[end])
     
     iter = TransformedMCMCEnsembleIterator(
         rngpart_cycle,
@@ -89,6 +94,8 @@ function TransformedMCMCEnsembleIterator(
         state_z,
         stepno,
         n_walker,
+        tau,
+        use_mala,
         n_accepted,
         TransformedMCMCIteratorInfo(id, cycle, false, false),
         context
@@ -103,21 +110,27 @@ function propose_mcmc(
     rng = get_rng(context)
     states_x = last(states_x)
     x, logd_x = states_x.v, states_x.logd
-    z, logd_z = flatview(state_z.v), state_z.logd
+    z, logd_z = state_z.v, state_z.logd
     f_inv = inverse(f)
-    n, m = size(z)
+    #n, m = size(z)
 
-    z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
+    z_proposed = similar(z)
+    for i in 1:length(z)
+        z_proposed[i] = z[i] + rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #TODO: check if proposal is symmetric? otherwise need additional factor?
+    end  
+    #z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
+    global g_state = (z,z_proposed)
+    #sfs
         
-    x_proposed, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
+    x_proposed =z_proposed#, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
 
-    z_proposed = nestedview(z_proposed)
-    x_proposed = nestedview(x_proposed)
+    #z_proposed = nestedview(z_proposed)
+    #x_proposed = nestedview(x_proposed)
 
     logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
-    logd_z_proposed = logd_x_proposed + vec(ladj)
+    logd_z_proposed = logd_x_proposed #+ vec(ladj)
 
-    @assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_inv, μ)).(z_proposed) #TODO: remove
+    #@assert logd_z_proposed ≈ logdensityof(MeasureBase.pullback(f_inv, μ)).(z_proposed) #TODO: remove
 
     p_accept = clamp.(exp.(logd_z_proposed-logd_z), 0, 1)
 
@@ -141,7 +154,7 @@ function propose_mala(
 
     z_proposed = similar(z)
 
-    tau = 0.01
+    tau = iter.tau
    
     ν = Transformed(μ, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
@@ -188,7 +201,12 @@ function transformed_mcmc_step!!(
     rng = get_rng(context)
     state_x = last(states_x)
 
-    state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
+    global g_state = (iter)
+    if iter.use_mala != true
+        state_x_proposed, state_z_proposed, p_accept = propose_mcmc(iter)
+    else
+        state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
+    end
 
     z_proposed, logd_z_proposed = state_z_proposed.v, state_z_proposed.logd
     x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd

@@ -29,7 +29,7 @@ function tuning_init!(tuner::TransformedMCMCNoOpTuner, chain::MCMCIterator, max_
     nothing
 end
 
-
+default_adaptive_transform(tuner::TransformedMCMCNoOpTuning) = TriangularAffineTransform() 
 
 function tune_mcmc_transform!!(
     tuner::TransformedMCMCNoOpTuner, 

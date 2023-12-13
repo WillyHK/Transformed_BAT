@@ -105,7 +105,7 @@ function mcmc_init!(
 
 
     init_tries::Int = 1
-    nwalker::Int = 100
+    nwalker::Int = algorithm.nwalker
 
     #while length(tuners) < min_nviable && ncandidates < max_ncandidates
         #viable_tuners = similar(tuners, 0)

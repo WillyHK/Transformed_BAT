@@ -40,12 +40,51 @@ include("../../examples/ExamplePosterior.jl")
 posterior = get_kamm(3)
 #posterior = BAT.example_posterior()
 
-x = BAT.bat_sample(posterior,TransformedMCMCSampling(strict=false, nsteps = 10^2)).result # @TODO: Why are there so many samples?
-plot(x)
+####################################################################
+# Sampling without ensembles and flow
+####################################################################
+context = BATContext(ad = ADModule(:ForwardDiff))
+x = @time BAT.bat_sample(posterior, 
+        TransformedMCMCSampling(
+            pre_transform=PriorToGaussian(), 
+            init=TransformedMCMCChainPoolInit(),
+            tuning_alg=TransformedMCMCNoOpTuning(), 
+            nchains=4, nsteps=500),
+        context).result; # @TODO: Why are there so many samples?
+plot(x,bins=200)
+println(sum(x.weight))
+println(length(x.v)/sum(x.weight))
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
 
-context = BATContext(ad = ADModule(:ForwardDiff))
+####################################################################
+# Ensembles without flow
+####################################################################
+function EnsembleSampling(posterior, f,mala=true)
+    y = @time BAT.bat_sample_impl(posterior, 
+        TransformedMCMCSampling(
+            pre_transform=PriorToGaussian(), 
+            init=TransformedMCMCEnsemblePoolInit(),
+            tuning_alg=TransformedMCMCNoOpTuning(), 
+            adaptive_transform=f, use_mala=mala,
+            nchains=4, nsteps=2500),
+        context).result;
+    println(length(y.v))
+    println(length(unique(y.v))/length(y.v))
+    plot(y,bins=200)
+end
+
+density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
+densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
+
+s = cholesky(Positive, BAT._approx_cov(densit)).L
+mul = BAT.CustomTransform(Mul(s))
+
+EnsembleSampling(posterior,mul,false)
+
+####################################################################
+# Flow trained to identity
+####################################################################
 
 d = length(x.v[1])
 n = bat_sample(MvNormal(zeros(d),I(d))).result
@@ -65,19 +104,12 @@ plot(flat2batsamples(normal'))
 plot(flat2batsamples(flow_n(normal)'))
 
 f = BAT.CustomTransform(flow_n)
+
 ####################################################################
 # Test the MALA-Step without tuning
 ####################################################################
-y = @time BAT.bat_sample_impl(posterior, 
-        TransformedMCMCSampling(
-            pre_transform=PriorToGaussian(), 
-            init=TransformedMCMCEnsemblePoolInit(),
-            tuning_alg=TransformedMCMCNoOpTuning(), 
-            adaptive_transform=f,
-            nchains=4, nsteps=200),
-        context).result 
-plot(y)
-println(length(unique(y.v))/length(y.v))
+EnsembleSampling(posterior,f,false) # MC prop.
+EnsembleSampling(posterior,f,true)
 
 ####################################################################
 # Test the FlowTuner
@@ -88,7 +120,7 @@ zx = @time BAT.bat_sample_impl(posterior,
             init=TransformedMCMCEnsemblePoolInit(),
             tuning_alg=MCMCFlowTuning(), 
             adaptive_transform=f,
-            nchains=4, nsteps=200),
+            nchains=4, nsteps=2500),
         context)
 z=zx.result 
 plot(z)
@@ -117,11 +149,7 @@ using BenchmarkTools
 logd_z = @btime logdensityof(MeasureBase.pullback(g, μ),z)
 
 
-density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
-densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
 
-s = cholesky(Positive, BAT._approx_cov(densit)).L
-f = BAT.CustomTransform(Mul(s))
 
 
 g= BAT.CustomTransform(Mul(s))

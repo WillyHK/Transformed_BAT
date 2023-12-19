@@ -44,6 +44,7 @@ function tune_mcmc_transform!!(
 )   
     # TODO find better way to handle ElasticMatrices
     global g_state_flow_optimization = (x, flow, tuner)
+    #bre
 
     flow_new = AdaptiveFlows.optimize_flow_sequentially(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = false)
     tuner_new = tuner # might want to update the training parameters 

@@ -40,10 +40,11 @@ include("../../examples/ExamplePosterior.jl")
 posterior = get_kamm(3)
 #posterior = BAT.example_posterior()
 
+context = BATContext(ad = ADModule(:ForwardDiff))
+
 ####################################################################
 # Sampling without ensembles and flow
 ####################################################################
-context = BATContext(ad = ADModule(:ForwardDiff))
 x = @time BAT.bat_sample(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
@@ -65,13 +66,16 @@ function EnsembleSampling(posterior, f,mala=true, tuning=TransformedMCMCNoOpTuni
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(),
-            tuning_alg=TransformedMCMCNoOpTuning(), 
+            tuning_alg=tuning, 
             adaptive_transform=f, use_mala=mala,
-            nchains=4, nsteps=2500),
-        context).result;
-    println(length(y.v))
-    println(length(unique(y.v))/length(y.v))
-    plot(y,bins=200)
+            nchains=4, nsteps=2500,nwalker=100),
+            context);
+    x = y.result
+    println(sum(x.weight))
+    println(length(unique(x.v))/sum(x.weight))
+    return x
+
+    plot(flat2batsamples(inverse(y.flow)(flatview(unshaped.(n.v)))'))
 end
 
 density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
@@ -80,13 +84,13 @@ densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, co
 s = cholesky(Positive, BAT._approx_cov(densit)).L
 mul = BAT.CustomTransform(Mul(s))
 
-EnsembleSampling(posterior,mul,false)
+y = EnsembleSampling(posterior,mul,false);
+plot(y,bins=200)
 #EnsembleSampling(posterior,mul,true)
 
 ####################################################################
 # Flow trained to identity
 ####################################################################
-
 d = length(x.v[1])
 n = bat_sample(MvNormal(zeros(d),I(d))).result
 normal::Matrix{Float32} = flatview(unshaped.(n.v))
@@ -101,22 +105,28 @@ function flat2batsamples(smpls_flat)
     return BAT.DensitySampleVector(smpls, logvals, weight = weights)
 end
 
-plot(flat2batsamples(normal'))
-plot(flat2batsamples(flow_n(normal)'))
+plot(flat2batsamples(normal'),bins=200)
+plot(flat2batsamples(flow_n(normal)'),bins=200)
 
 f = BAT.CustomTransform(flow_n)
 
 ####################################################################
 # Test the Flow without tuning
 ####################################################################
-EnsembleSampling(posterior,f,false) # MC prop.
-EnsembleSampling(posterior,f,true)
+z_mh=EnsembleSampling(posterior,f,false); # MC prop.
+plot(z_mh,bins=200)
+
+z_mala =EnsembleSampling(posterior,f,true);
+plot(z_mala,bins=200)
 
 ####################################################################
 # Test the FlowTuner
 ####################################################################
-EnsembleSampling(posterior,f,false,MCMCFlowTuning()) # MC prop.
-EnsembleSampling(posterior,f,true,MCMCFlowTuning()) 
+t_mh=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop.
+plot(t_mh,bins=200)
+
+t_mala = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
+plot(t_mala,bins=200)
 
 ####################################################################
 # Well trained flow
@@ -127,11 +137,13 @@ flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).resul
 
 plot(flat2batsamples(samples'))
 plot(flat2batsamples(flow(samples)'))
+plot(flat2batsamples(normal'))
+plot(flat2batsamples(inverse(flow)(normal)'))
 
 f2 = BAT.CustomTransform(flow)
 
 EnsembleSampling(posterior,f2,false) # MC prop.
-EnsembleSampling(posterior,f2,true)
+test=EnsembleSampling(posterior,f2,true)
 EnsembleSampling(posterior,f2,false,MCMCFlowTuning()) # MC prop.
 EnsembleSampling(posterior,f2,true,MCMCFlowTuning()) 
 ###############################

@@ -171,7 +171,7 @@ function bat_sample_impl_ensemble(
         temperers
     )
 
-    samples_trafo, generator = run_sampling.result_trafo, run_sampling.generator
+    samples_trafo, generator, flow = run_sampling.result_trafo, run_sampling.generator, run_sampling.flow
 
     # prepend burnin samples to output
     if algorithm.store_burnin
@@ -184,7 +184,7 @@ function bat_sample_impl_ensemble(
     samples_notrafo = inverse(pre_trafo).(samples_trafo)
     #samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
 
-    (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm), flow = flow)
 end
 
 
@@ -276,7 +276,7 @@ function _run_sample_impl_ensemble(
 
     samples_trafo = varshape(density).(output[1:end])
 
-    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm),flow = chains[1].f)
 end
 #
 #    output = reduce(vcat, getfield.(chains, :states_x))

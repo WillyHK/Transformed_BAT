@@ -162,7 +162,7 @@ function propose_mala(
     ∇log_ν = gradient_func(log_ν, AD_sel)
 
     for i in 1:length(z)
-        if (rand() < (1/length(z_proposed)))
+        if (rand() < 0.05)
             z_proposed[i] = rand(MvNormal(zeros(length(z[i])),I(length(z[i]))))
         else
             z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) + tau .* ∇log_ν(z[i])

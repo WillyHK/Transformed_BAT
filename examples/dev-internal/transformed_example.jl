@@ -142,10 +142,20 @@ plot(flat2batsamples(inverse(flow)(normal)'))
 
 f2 = BAT.CustomTransform(flow)
 
-EnsembleSampling(posterior,f2,false) # MC prop.
-test=EnsembleSampling(posterior,f2,true)
-EnsembleSampling(posterior,f2,false,MCMCFlowTuning()) # MC prop.
-EnsembleSampling(posterior,f2,true,MCMCFlowTuning()) 
+# Test the Flow without tuning
+z_mh2=EnsembleSampling(posterior,f2,false); # MC prop.
+plot(z_mh2,bins=200)
+
+z_mala2 =EnsembleSampling(posterior,f2,true);
+plot(z_mala2,bins=200)
+
+# Test the FlowTuner
+t_mh2=EnsembleSampling(posterior,f2,false,MCMCFlowTuning()); # MC prop.
+plot(t_mh2,bins=200)
+
+t_mala2 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
+plot(t_mala2,bins=200)
+
 ###############################
 # Old code below this
 ###############################

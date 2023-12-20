@@ -117,7 +117,7 @@ function bat_sample_impl(
     (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
 end
 
-g_state_post_algorithm = (;)
+
 
 function bat_sample_impl_ensemble(
     target::AnyMeasureOrDensity,
@@ -138,12 +138,11 @@ function bat_sample_impl_ensemble(
         algorithm.store_burnin ? algorithm.callback : nop_func,
         context
     )
-    
 
-    @unpack chains, tuners, temperers = init
+    @unpack ensembles, tuners, temperers = init
 
     burnin_outputs_coll = if algorithm.store_burnin
-        DensitySampleVector(first(chains))
+        DensitySampleVector(first(ensembles))
     else
         nothing
     end
@@ -151,7 +150,7 @@ function bat_sample_impl_ensemble(
     # burnin and tuning  # @TODO: Hier wird noch kein ensemble BurnIn gemacht !!!!!!!!!!!!!!!
    # mcmc_burnin!(
    #     burnin_outputs_coll,
-   #     chains,
+   #     ensembles,
    #     tuners,
    #     temperers,
    #     algorithm.burnin,
@@ -166,7 +165,7 @@ function bat_sample_impl_ensemble(
     run_sampling = _run_sample_impl_ensemble(
         density,
         algorithm,
-        chains,
+        ensembles,
         tuners,
         temperers
     )
@@ -179,12 +178,12 @@ function bat_sample_impl_ensemble(
         prepend!(samples_trafo, burnin_samples_trafo)
     end
 
-    global g_state_post_algorithm = (pre_trafo, samples_trafo, vs, density, algorithm, chains, tuners, temperers, target, context)
+    global g_state_post_algorithm = (pre_trafo, samples_trafo, vs, density, algorithm, ensembles, tuners, temperers, target, context)
 
     samples_notrafo = inverse(pre_trafo).(samples_trafo)
     #samples_notrafo = vs.(inverse(pre_trafo).(samples_trafo))
 
-    (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm), flow = flow)
+    (result = samples_notrafo, result_trafo = samples_trafo, trafo = pre_trafo, generator = TransformedMCMCSampleGenerator(ensembles, algorithm), flow = flow)
 end
 
 
@@ -194,17 +193,17 @@ function _bat_sample_continue(
     generator::TransformedMCMCSampleGenerator,
     ;description::AbstractString = "MCMC iterate"
 )
-    @unpack algorithm, chains = generator
+    @unpack algorithm, ensembles = generator
     density_notrafo = convert(AbstractMeasureOrDensity, target)
     density, trafo = transform_and_unshape(algorithm.pre_transform, density_notrafo)
 
-    run_sampling = _run_sample_impl(density, algorithm, chains, description=description)
+    run_sampling = _run_sample_impl(density, algorithm, ensembles, description=description)
 
     samples_trafo, generator = run_sampling.result_trafo, run_sampling.generator
 
     samples_notrafo = inverse(trafo).(samples_trafo)
 
-    (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+    (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, generator = TransformedMCMCSampleGenerator(ensembles, algorithm))
 end
 =#
 
@@ -244,22 +243,22 @@ end
 function _run_sample_impl_ensemble(
     density::AnyMeasureOrDensity,
     algorithm::TransformedMCMCSampling,
-    chains::AbstractVector{<:MCMCIterator},
+    ensembles::AbstractVector{<:MCMCIterator},
     tuner,
     temperer,
     ;description::AbstractString = "MCMC iterate"
 )
 
-    next_cycle!.(chains) 
+    next_cycle!.(ensembles) 
 
     progress_meter = ProgressMeter.Progress(algorithm.nchains*algorithm.nsteps, desc=description, barlen=80-length(description), dt=0.1)
 
     # tuners are set to 'NoOpTuner' for the sampling phase
     for i in 1:algorithm.nsteps
         transformed_mcmc_iterate!(
-            chains,
-            tuner,#get_tuner.(Ref(TransformedMCMCNoOpTuning()),chains),
-            temperer, #get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), chains),
+            ensembles,
+            tuner,#get_tuner.(Ref(TransformedMCMCNoOpTuning()),ensembles),
+            temperer, #get_temperer.(Ref(TransformedNoTransformedMCMCTempering()), ensembles),
             max_nsteps = algorithm.nsteps, #TODO: maxtime
             nonzero_weights = algorithm.nonzero_weights,
             callback = (kwargs...) -> let pm=progress_meter; ProgressMeter.next!(pm) ; end,
@@ -267,19 +266,19 @@ function _run_sample_impl_ensemble(
     end
     ProgressMeter.finish!(progress_meter)
 
-    output = copy(chains[1].states_x[1])
-    for chain in chains
-        for i in 1:length(chain.states_x)
-            append!(output,chain.states_x[i])
+    output = copy(ensembles[1].states_x[1])
+    for ensemble in ensembles
+        for i in 1:length(ensemble.states_x)
+            append!(output,ensemble.states_x[i])
         end
     end
 
     samples_trafo = varshape(density).(output[1:end])
 
-    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(chains, algorithm),flow = chains[1].f)
+    (result_trafo = samples_trafo, generator = TransformedMCMCSampleGenerator(ensembles, algorithm),flow = ensembles[1].f)
 end
 #
-#    output = reduce(vcat, getfield.(chains, :states_x))
+#    output = reduce(vcat, getfield.(ensembles, :states_x))
 #
-#    (result_trafo = output, generator = TransformedMCMCSampleGenerator(chains, algorithm))
+#    (result_trafo = output, generator = TransformedMCMCSampleGenerator(ensembles, algorithm))
 #end

@@ -65,7 +65,7 @@ function EnsembleSampling(posterior, f,mala=true, tuning=TransformedMCMCNoOpTuni
     y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
-            init=TransformedMCMCEnsemblePoolInit(),
+            init=TransformedMCMCEnsemblePoolInit(), #@TO-Do:  nsteps angeben, faktor wie viele
             tuning_alg=tuning, 
             adaptive_transform=f, use_mala=mala,
             nchains=4, nsteps=2500,nwalker=100),
@@ -126,7 +126,7 @@ t_mh=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop.
 plot(t_mh,bins=200)
 
 t_mala = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
-plot(t_mala,bins=200)
+plot(t_mala,bins=200)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
 
 ####################################################################
 # Well trained flow
@@ -143,18 +143,17 @@ plot(flat2batsamples(inverse(flow)(normal)'))
 f2 = BAT.CustomTransform(flow)
 
 # Test the Flow without tuning
-z_mh2=EnsembleSampling(posterior,f2,false); # MC prop.
-plot(z_mh2,bins=200)
-
 z_mala2 =EnsembleSampling(posterior,f2,true);
-plot(z_mala2,bins=200)
+plot(z_mala2,bins=200)                                                                         # @TO-DO. Mit besseren Flow wird das Sampling schlechter    
 
 # Test the FlowTuner
-t_mh2=EnsembleSampling(posterior,f2,false,MCMCFlowTuning()); # MC prop.
-plot(t_mh2,bins=200)
-
 t_mala2 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
-plot(t_mala2,bins=200)
+plot(t_mala2,bins=200)                                                                         # @TO-DO. Hier bringt Training dann plötzlich gutes Improvement
+
+
+
+
+
 
 ###############################
 # Old code below this

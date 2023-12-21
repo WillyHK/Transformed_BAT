@@ -141,9 +141,20 @@ function propose_mcmc(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
+function propose_random_normal(dim::Int, n::Int)
+    return rand(MvNormal(zeros(dim),ones(dim)),n)
+end
 
-function propose_mala(
-    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
+function propose_mcmc(z, dim::Int)
+    return z + rand(MvNormal(zeros(dim),ones(dim)))
+end
+
+function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector)
+    return z + sqrt(2*tau) * rand(MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
+end
+
+function propose_state(
+    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}, flow_rate::Float64= 0.05
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
     rng = get_rng(context)
@@ -153,27 +164,29 @@ function propose_mala(
     z = state_z.v
     logd_x = last(states_x).logd
 
+    dim=length(z[1])
     z_proposed = similar(z)
 
-    tau = iter.tau
-   
+    flow_mask = (rand(length(z)) .< flow_rate)
+    z_proposed[flow_mask] = nestedview(propose_random_normal(dim,sum(flow_mask)))
+
     ν = Transformed(μ, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
-    ∇log_ν = gradient_func(log_ν, AD_sel)
+    
+    if iter.use_mala == true
+        ∇log_ν = gradient_func(log_ν, AD_sel)
+        grads = ∇log_ν.(z)
 
-    for i in 1:length(z)
-        if (rand() < 0.05)
-            z_proposed[i] = rand(MvNormal(zeros(length(z[i])),I(length(z[i]))))
-        else
-            z_proposed[i] = z[i] + sqrt(2*tau) * rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) + tau .* ∇log_ν(z[i])
-        end
-    end  
+        i = .!flow_mask
+        z_proposed[i] = propose_mala.(z[i], dim, iter.tau, grads[i])
+    else
+        i = .!flow_mask
+        z_proposed[i] = propose_mcmc.(z[i], dim)
+    end
 
     logd_z_proposed = log_ν.(z_proposed)
 
     x_proposed = f(z_proposed) # obiously this should be a f_inv by our definition, but this Versions delievers better results: STILL INVESTIGATING !!! @TODO
-    #global g_state = (x_proposed, f, f_inv, z_proposed)
-    #adf
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))
@@ -203,10 +216,10 @@ function transformed_mcmc_step!!(
     state_x = last(states_x)
 
     global g_state = (iter)
-    if iter.use_mala != true
+    if f isa Mul
         state_x_proposed, state_z_proposed, p_accept = propose_mcmc(iter)
     else
-        state_x_proposed, state_z_proposed, p_accept = propose_mala(iter)
+        state_x_proposed, state_z_proposed, p_accept = propose_state(iter)
     end
 
     z_proposed, logd_z_proposed = state_z_proposed.v, state_z_proposed.logd
@@ -246,47 +259,6 @@ function transformed_mcmc_step!!(
     return (iter, tuner_new, tempering_new)
 end
 
-
-# function transformed_mcmc_trafo_proposal_step!!(
-#     ensemble::TransformedMCMCEnsembleIterator,
-#     tempering::TransformedMCMCTemperingInstance
-# )
-#     @unpack  μ, f, proposal, states_x, state_z, stepno, context = ensemble
-#     rng = get_rng(context)
-#     proposal_dist = proposal.proposal_dist
-#     f_inv = inverse(f)
-# 
-#     state_x = last(states_x)
-# 
-#     state_z_proposed = bat_sample_impl(proposal_dist, BAT.IIDSampling(length(state_x)), context).result
-# 
-#     x_proposed = f_inv(state_z_proposed)
-# 
-#     logd_x_proposed = logdensityof(μ).(x_proposed)
-# 
-#     p_accept = clamp.(exp.(logd_x_proposed - logd_x), 0, 1)
-# 
-#     accepted = rand(rng, length(p_accept)) .<= p_accept
-#         
-#     x_new, logd_x_new = state_x.v, state_x.logd
-#     z_new, logd_z_new = state_z.v, state_z.logd
-# 
-#     x_new[accepted], z_new[accepted], logd_x_new[accepted], logd_z_new[accepted] = x_proposed[accepted], z_proposed[accepted], logd_x_proposed[accepted], logd_z_proposed[accepted]
-# 
-#     state_x_new = DensitySampleVector((x_new, logd_x_new, ones(length(x_new)), fill(TransformedMCMCTransformedSampleID(ensemble.info.id, ensemble.info.cycle, ensemble.stepno), length(x_new)), fill(nothing, length(x_new))))
-#     push!(states_x, state_x_new) 
-# 
-#     state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
-# 
-#     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
-# 
-#     ensemble.μ, ensemble.state_z = μ_new, state_z_new
-#     ensemble.n_accepted += Int.(accepted)
-#     ensemble.stepno += 1
-#     @assert ensemble.context === context
-# 
-#     return (ensemble, tempering_new)
-# end
 
 function transformed_mcmc_iterate!( 
     ensembles::AbstractVector{<:TransformedMCMCEnsembleIterator},

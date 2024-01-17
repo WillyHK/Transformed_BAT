@@ -154,7 +154,7 @@ function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector)
 end
 
 function propose_state(
-    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}, flow_rate::Float64= 0.00
+    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}, flow_rate::Float64= 0.0
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
     rng = get_rng(context)

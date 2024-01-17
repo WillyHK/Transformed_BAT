@@ -68,7 +68,7 @@ function get_dualmode(dim = 3)
     likelihood = params -> begin      
         r=0
         for i in 1:dim
-            r+= logpdf(MixtureModel(Normal, [(-2,1.0),(2,1.0)],[0.5,0.5]), params[i])
+            r+= logpdf(MixtureModel(Normal, [(0,0.5),(0,3.0)],[0.5,0.5]), params[i])
         end
         return LogDVal(r)
     end

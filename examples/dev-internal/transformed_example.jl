@@ -43,7 +43,9 @@ posterior = get_normal(2)
 
 
 context = BATContext(ad = ADModule(:ForwardDiff))
-posterior, trafo = BAT.transform_and_unshape(PriorToGaussian(), get_normal(2), context)
+posterior, trafo = BAT.transform_and_unshape(PriorToGaussian(), get_dualmode(2), context)
+xl=[-2,2]
+
 ####################################################################
 # Sampling without ensembles and flow
 ####################################################################
@@ -54,7 +56,7 @@ x = @time BAT.bat_sample(posterior,
             tuning_alg=TransformedMCMCNoOpTuning(), 
             nchains=4, nsteps=500),
         context).result; # @TODO: Why are there so many samples?
-p=plot(x,bins=200,)
+p=plot(x,bins=200,xlims=xl)
 println(sum(x.weight))
 println(length(x.v)/sum(x.weight))
 
@@ -87,7 +89,7 @@ s = cholesky(Positive, BAT._approx_cov(densit)).L
 mul = BAT.CustomTransform(Mul(s))
 
 y, flow = EnsembleSampling(posterior,mul,false);
-plot(y,bins=200)
+plot(y,bins=200,xlims=xl)
 #EnsembleSampling(posterior,mul,true)
 
 ####################################################################
@@ -116,19 +118,20 @@ f = BAT.CustomTransform(flow_n)
 # Test the Flow without tuning
 ####################################################################
 z_mh, flow=EnsembleSampling(posterior,f,false); # MC prop.
-plot(z_mh,bins=200)
+plot(z_mh,bins=200,xlims=xl)
 
 z_mala, flow2 =EnsembleSampling(posterior,f,true);
-plot(z_mala,bins=200)
+plot(z_mala,bins=200,xlims=xl)
 
 ####################################################################
 # Test the FlowTuner
 ####################################################################
 t_mh, flow3=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop. # @TODO: Why nan :( # There is NaN because we train on the same samples, because low acptrate
-plot(t_mh,bins=200) # @TODO: Investigate why it becomes so nice :D
+plot(t_mh,bins=200,xlims=xl) # @TODO: Investigate why it becomes so nice :D
 
 t_mala, flow4 = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
-plot(t_mala,bins=200)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
+plot(t_mala,bins=200,xlims=xl)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
+savefig("/ceph/groups/e4/users/wweber/private/Master/Plots/samples.pdf")
 
 ####################################################################
 # Well trained flow
@@ -145,18 +148,20 @@ f2 = BAT.CustomTransform(flow)
 
 # Test the Flow without tuning
 z_mala2, flow2 =EnsembleSampling(posterior,f2,true);
-plot(z_mala2,bins=200)                                                                        # @TO-DO. Mit besseren Flow wird das Sampling schlechter    
+plot(z_mala2,bins=200,xlims=xl)                                                                        # @TO-DO. Mit besseren Flow wird das Sampling schlechter    
 plot(flat2batsamples(flow2(flatview(z_mala2.v))'))
 
 # Test the FlowTuner
 t_mala2, flow5 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
-plot(t_mala2,bins=200)                                                                         # @TO-DO. Hier bringt Training dann plötzlich gutes Improvement
+plot(t_mala2,bins=200,xlims=xl)                                                                         # @TO-DO. Hier bringt Training dann plötzlich gutes Improvement
 plot(flat2batsamples(flow5(flatview(t_mala2.v))'))
 
 plot(flat2batsamples(samples'))
 plot(flat2batsamples(flow4(samples)'))
+savefig("/ceph/groups/e4/users/wweber/private/Master/Plots/flowSamples.pdf")
 plot(flat2batsamples(normal'))
 plot(flat2batsamples(inverse(flow4)(normal)'))
+savefig("/ceph/groups/e4/users/wweber/private/Master/Plots/invflowNormal.pdf")
 
 #function savePlots(flow, samples)
 #savefig("/ceph/groups/e4/users/wweber/private/Master/Plots/spline3.png")

@@ -154,7 +154,7 @@ function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector)
 end
 
 function propose_state(
-    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}, flow_rate::Float64= 0.05
+    iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}, flow_rate::Float64= 0.00
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
     rng = get_rng(context)
@@ -186,7 +186,7 @@ function propose_state(
 
     logd_z_proposed = log_ν.(z_proposed)
 
-    x_proposed = f(z_proposed) # obiously this should be a f_inv by our definition, but this Versions delievers better results: STILL INVESTIGATING !!! @TODO
+    x_proposed = f_inv(z_proposed)
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))
@@ -226,6 +226,13 @@ function transformed_mcmc_step!!(
     x_proposed, logd_x_proposed = state_x_proposed.v, state_x_proposed.logd
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
+    rate = sum(accepted)/length(p_accept)
+    #iter.tau = iter.tau*2*rate
+    if rate > 0.57
+        iter.tau = iter.tau*1.1
+    else
+        iter.tau = iter.tau*0.9
+    end
 
     x_new, logd_x_new = copy(state_x.v), copy(state_x.logd)
     z_new, logd_z_new = copy(state_z.v), copy(state_z.logd)

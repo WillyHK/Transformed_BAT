@@ -39,9 +39,11 @@ using ValueShapes
 include("../../examples/ExamplePosterior.jl")
 posterior = get_kamm(3)
 #posterior = BAT.example_posterior()
+posterior = get_normal(2)
+
 
 context = BATContext(ad = ADModule(:ForwardDiff))
-
+posterior, trafo = BAT.transform_and_unshape(PriorToGaussian(), get_normal(2), context)
 ####################################################################
 # Sampling without ensembles and flow
 ####################################################################
@@ -73,7 +75,7 @@ function EnsembleSampling(posterior, f,mala=true, tuning=TransformedMCMCNoOpTuni
     x = y.result
     println(sum(x.weight))
     println(length(unique(x.v))/sum(x.weight))
-    return x
+    return x, y.flow
 
     plot(flat2batsamples(inverse(y.flow)(flatview(unshaped.(n.v)))'))
 end
@@ -84,7 +86,7 @@ densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, co
 s = cholesky(Positive, BAT._approx_cov(densit)).L
 mul = BAT.CustomTransform(Mul(s))
 
-y = EnsembleSampling(posterior,mul,false);
+y, flow = EnsembleSampling(posterior,mul,false);
 plot(y,bins=200)
 #EnsembleSampling(posterior,mul,true)
 
@@ -113,26 +115,25 @@ f = BAT.CustomTransform(flow_n)
 ####################################################################
 # Test the Flow without tuning
 ####################################################################
-z_mh=EnsembleSampling(posterior,f,false); # MC prop.
+z_mh, flow=EnsembleSampling(posterior,f,false); # MC prop.
 plot(z_mh,bins=200)
 
-z_mala =EnsembleSampling(posterior,f,true);
+z_mala, flow2 =EnsembleSampling(posterior,f,true);
 plot(z_mala,bins=200)
 
 ####################################################################
 # Test the FlowTuner
 ####################################################################
-t_mh=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop. # @TODO: Why nan :(
-plot(t_mh,bins=200)
+t_mh, flow3=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop. # @TODO: Why nan :( # There is NaN because we train on the same samples, because low acptrate
+plot(t_mh,bins=200) # @TODO: Investigate why it becomes so nice :D
 
-t_mala = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
+t_mala, flow4 = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
 plot(t_mala,bins=200)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
 
 ####################################################################
 # Well trained flow
 ####################################################################
-flow=build_flow(normal) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
-samples = samples ./ std(samples)
+flow=build_flow(samples) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
 flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).result
 
 plot(flat2batsamples(samples'))
@@ -143,16 +144,22 @@ plot(flat2batsamples(inverse(flow)(normal)'))
 f2 = BAT.CustomTransform(flow)
 
 # Test the Flow without tuning
-z_mala2 =EnsembleSampling(posterior,f2,true);
-plot(z_mala2,bins=200)                                                                         # @TO-DO. Mit besseren Flow wird das Sampling schlechter    
+z_mala2, flow2 =EnsembleSampling(posterior,f2,true);
+plot(z_mala2,bins=200)                                                                        # @TO-DO. Mit besseren Flow wird das Sampling schlechter    
+plot(flat2batsamples(flow2(flatview(z_mala2.v))'))
 
 # Test the FlowTuner
-t_mala2 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
+t_mala2, flow5 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
 plot(t_mala2,bins=200)                                                                         # @TO-DO. Hier bringt Training dann plötzlich gutes Improvement
+plot(flat2batsamples(flow5(flatview(t_mala2.v))'))
 
+plot(flat2batsamples(samples'))
+plot(flat2batsamples(flow4(samples)'))
+plot(flat2batsamples(normal'))
+plot(flat2batsamples(inverse(flow4)(normal)'))
 
-
-
+#function savePlots(flow, samples)
+#savefig("/ceph/groups/e4/users/wweber/private/Master/Plots/spline3.png")
 
 
 ###############################

@@ -125,7 +125,7 @@ function mcmc_init!(
     end
 
     for ensemble in new_ensembles
-        mask = (ensemble.n_accepted .> 0.12*init_alg.nsteps_init)
+        mask = (ensemble.n_accepted .> 0.03*init_alg.nsteps_init)
         viable_walker = ensemble.states_x[end][mask]
         choosen = rand(1:length(viable_walker),nwalker)
         ensemble.states_x = [viable_walker[choosen]]

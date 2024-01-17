@@ -13,11 +13,6 @@ function ChangesOfVariables.with_logabsdet_jacobian(f::CompositeFlow, x::ArrayOf
 end    
 
 
-function ChangesOfVariables.with_logabsdet_jacobian(f::CompositeFlow, x::SubArray)
-    return with_logabsdet_jacobian(f, Vector(x))
-end    
-
-
 function ChangesOfVariables.with_logabsdet_jacobian(f::CompositeFlow, x::Matrix{Float64})
     y, ladj = ChangesOfVariables.with_logabsdet_jacobian(f.flow.fs[2], x)
     return y, ladj

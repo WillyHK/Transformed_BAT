@@ -52,7 +52,7 @@ x = @time BAT.bat_sample(posterior,
             tuning_alg=TransformedMCMCNoOpTuning(), 
             nchains=4, nsteps=500),
         context).result; # @TODO: Why are there so many samples?
-plot(x,bins=200)
+p=plot(x,bins=200,)
 println(sum(x.weight))
 println(length(x.v)/sum(x.weight))
 
@@ -122,7 +122,7 @@ plot(z_mala,bins=200)
 ####################################################################
 # Test the FlowTuner
 ####################################################################
-t_mh=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop.
+t_mh=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop. # @TODO: Why nan :(
 plot(t_mh,bins=200)
 
 t_mala = EnsembleSampling(posterior,f,true,MCMCFlowTuning());

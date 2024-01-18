@@ -186,7 +186,7 @@ function propose_state(
 
     logd_z_proposed = log_ν.(z_proposed)
 
-    x_proposed = f_inv(z_proposed)
+    x_proposed = f(z_proposed) #_inv
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))

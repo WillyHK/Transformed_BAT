@@ -40,8 +40,9 @@ using InverseFunctions
 using ArraysOfArrays
 using ValueShapes
 
+
 dir = "/ceph/groups/e4/users/wweber/private/Master/Plots"
-testname = "testen3"
+testname = "1D_dual_100w_f-3_10ep"
 path = "$dir/$testname"
 if !(isdir(path))
     mkpath(path)
@@ -54,26 +55,34 @@ posterior = get_normal(2)
 
 
 context = BATContext(ad = ADModule(:ForwardDiff))
-posterior, trafo = BAT.transform_and_unshape(PriorToGaussian(), get_dualmode(2), context)
+posterior, trafo = BAT.transform_and_unshape(PriorToGaussian(), get_dualmode(1), context)
 xl=[-2,2]
 
 ####################################################################
 # Sampling without ensembles and flow
 ####################################################################
-x = @time BAT.bat_sample(posterior, 
+x = @time BAT.bat_sample(posterior,
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCChainPoolInit(),
             tuning_alg=TransformedMCMCNoOpTuning(), 
-            nchains=4, nsteps=500),
+            nchains=4, nsteps=354),
         context).result; # @TODO: Why are there so many samples?
-p=plot(x,bins=200,xlims=xl)
+p=plot(x,bins=200)#,xlims=xl)
 savefig("$path/truth.pdf")
 println(sum(x.weight))
 println(length(x.v)/sum(x.weight))
 
 samples::Matrix{Float32} = flatview(unshaped.(x.v))
 
+
+samples2 = []
+for i in 1:length(x.v)
+    for j in 1:x.weight[i]
+        push!(samples2,x.v[i])
+    end
+end
+samples = BAT2Matrix(samples2)#[rand(1:length(samples), 5000)])
 ####################################################################
 # Ensembles without flow
 ####################################################################
@@ -82,9 +91,9 @@ function EnsembleSampling(posterior, f,mala=true, tuning=TransformedMCMCNoOpTuni
         TransformedMCMCSampling(
             pre_transform=PriorToGaussian(), 
             init=TransformedMCMCEnsemblePoolInit(), #@TO-Do:  nsteps angeben, faktor wie viele
-            tuning_alg=tuning, 
+            tuning_alg=tuning, tau=0.01,
             adaptive_transform=f, use_mala=mala,
-            nchains=4, nsteps=2500,nwalker=100),
+            nchains=1, nsteps=100,nwalker=1000),
             context);
     x = y.result
     println(sum(x.weight))
@@ -111,7 +120,12 @@ d = length(x.v[1])
 n = bat_sample(MvNormal(zeros(d),I(d))).result
 normal::Matrix{Float32} = flatview(unshaped.(n.v))
 flow_n = build_flow(normal)
-flow_n = AdaptiveFlows.optimize_flow_sequentially(normal, flow_n, Adam(1f-3)).result
+@time flow_n, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(normal, flow_n, Adam(1f-3), nbatches=1,nepochs=100, shuffle_samples=true);
+
+x = 1:length(loss_hist[2][1])
+
+# Plot erstellen
+plot(x, loss_hist[2][1], label="Kurve", xlabel="X-Achse", ylabel="Y-Achse", title="Kurvenplot")
 
 function flat2batsamples(smpls_flat)
     n = length(smpls_flat[:,1])
@@ -122,7 +136,7 @@ function flat2batsamples(smpls_flat)
 end
 
 plot(flat2batsamples(normal'),bins=200)
-plot(flat2batsamples(flow_n(normal)'),bins=200)
+plot(flat2batsamples(inverse(flow_n)(normal)'),bins=200)
 
 f = BAT.CustomTransform(flow_n)
 
@@ -140,34 +154,47 @@ plot(z_mala,bins=200,xlims=xl)
 ####################################################################
 t_mh, flow3=EnsembleSampling(posterior,f,false,MCMCFlowTuning()); # MC prop. # @TODO: Why nan :( # There is NaN because we train on the same samples, because low acptrate
 plot(t_mh,bins=200,xlims=xl) # @TODO: Investigate why it becomes so nice :D
+i=1
+for i in 1:5
+    ii = string(i)
+    mkpath("$path/$ii/")
+    t_mala, flow4 = EnsembleSampling(posterior,f2,true,MCMCFlowTuning());
+    plot(t_mala,bins=200)#,xlims=xl)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
+    savefig("$path/$ii/samples.pdf")
 
-t_mala, flow4 = EnsembleSampling(posterior,f,true,MCMCFlowTuning());
-plot(t_mala,bins=200,xlims=xl)                                                                           # @TO-DO. Flow lernt wenig und wenn das falsche
-savefig("$path/samples2.pdf")
+    #samples::Matrix{Float32} = flatview(unshaped.(t_mala.v))
+    plot(flat2batsamples(samples'))
+    plot(flat2batsamples(flow4(samples)'))
 
-plot(flat2batsamples(samples'))
-plot(flat2batsamples(flow4(samples)'))
-savefig("$path/flowTruth2.pdf")
-plot(flat2batsamples(normal'))
-plot(flat2batsamples(inverse(flow4)(normal)'))
-savefig("$path/invflowNormal2.pdf")
-plot(flat2batsamples(inverse(flow4)(samples)'))
-#savefig("$path/invflowSamples.pdf")
-f = BAT.CustomTransform(flow4)
+    savefig("$path/$ii/flowTruth.pdf")
+    plot(flat2batsamples(normal'))
+    plot(flat2batsamples(inverse(flow4)(normal)'))#,xlims=xl)
+    savefig("$path/$ii/invflowNormal.pdf")
+    #plot(flat2batsamples(inverse(flow4)(samples)'))
+    #savefig("$path/invflowSamples.pdf")
+    f2 = BAT.CustomTransform(flow4)
+end
+
 
 print("Ende")
 ####################################################################
 # Well trained flow
 ####################################################################
-# flow=build_flow(samples) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
-# flow = AdaptiveFlows.optimize_flow_sequentially(samples, flow, Adam(1f-3)).result
-# 
-# plot(flat2batsamples(samples'))
-# plot(flat2batsamples(flow(samples)'))
-# plot(flat2batsamples(normal'))
-# plot(flat2batsamples(inverse(flow)(normal)'))
-# 
-# f2 = BAT.CustomTransform(flow)
+flow2=build_flow(samples) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
+@time flow2, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples,flow2, Adam(1f-3), nbatches=5,nepochs=1000, shuffle_samples=true); #5,500 nice
+
+x = 1:length(loss_hist[2][1])
+plot(x, loss_hist[2][1], xlabel="Epoch", ylabel="Loss", title="Evolution of Loss")
+savefig("$path/LossAmStueck.pdf")
+
+plot(flat2batsamples(samples'))
+plot(flat2batsamples(flow2(samples)'))
+savefig("$path/fastruth.pdf")
+plot(flat2batsamples(normal'))
+plot(flat2batsamples(inverse(flow2)(normal)'))
+savefig("$path/invfasnormal.pdf") 
+
+f2 = BAT.CustomTransform(flow2)
 # 
 # # Test the Flow without tuning
 # z_mala2, flow2 =EnsembleSampling(posterior,f2,true);
@@ -179,8 +206,11 @@ print("Ende")
 # plot(t_mala2,bins=200,xlims=xl)                                                                         # @TO-DO. Hier bringt Training dann plötzlich gutes Improvement
 # plot(flat2batsamples(flow5(flatview(t_mala2.v))'))
 # 
-# 
 
+plot(dataa, linewidth=1,xlabel="Epoch", ylabel="Loss", title="Evolution of Loss")
+savefig("$path/loss_5x100steps_20ep.pdf") 
+
+pritn("ende")
 
 # ###############################
 # # Old code below this

@@ -132,7 +132,7 @@ function mcmc_init!(
         ensemble.state_z = ensemble.state_z[mask][choosen]
         ensemble.n_accepted = zeros(Int64,nwalker)
         if(length(viable_walker)<nwalker)
-            error("Found not enough good walker!") # @ToDo retry with more walkers to find enough good ones!
+            println("Found not enough good walker!") # @ToDo retry with more walkers to find enough good ones!
         end
     end
 

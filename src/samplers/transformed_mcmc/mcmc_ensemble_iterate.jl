@@ -245,7 +245,7 @@ function transformed_mcmc_step!!(
 
     state_z_new = _rebuild_density_sample_vector(state_z, z_new, logd_z_new)
 
-
+    #tuner_new=tuner
     if (tuner isa MCMCFlowTuner)
         tuner_new, f_new = tune_mcmc_transform!!(tuner, f, state_x_new.v, context)
         f=f_new.result
@@ -253,12 +253,15 @@ function transformed_mcmc_step!!(
         open("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/data.txt", "a") do file
             write(file, "$loss")
         end
+        println(tuner.optimizer.eta)
+        println(tuner_new.optimizer.eta)
     else
         global g_state = (tuner, f, p_accept, z_proposed, state_z.v, stepno, context)
         tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, state_z.v, stepno, context)
         # should this take the old z state?
     end
     tempering_new, μ_new = temper_mcmc_target!!(tempering, μ, stepno)
+    #tuner = tuner_new
 
     f_new = f
 
@@ -286,7 +289,7 @@ function transformed_mcmc_iterate!(
     end
     
     for i in 1:length(ensembles)
-        transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
+        ensembles[i], tuners[i],temperers[i] = transformed_mcmc_step!!(ensembles[i], tuners[i],temperers[i])
     end
 
     return nothing

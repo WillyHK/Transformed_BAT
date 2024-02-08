@@ -109,6 +109,22 @@ function get_dualmode(dim = 3)
     return posterior
 end
 
+function get_triplemode(dim = 3)
+    label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
+    value = [ Uniform(-10,10) for i in 1:dim]
+    prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    likelihood = params -> begin      
+        r=0
+        for i in 1:dim
+            r+= logpdf(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]), params[i])
+        end
+        return LogDVal(r)
+    end
+    posterior = PosteriorDensity(likelihood, prior);
+    return posterior
+end
+
 
 function get_funnel(dim = 3)
     label = [Symbol(string(Char(i))) for i in 97:97+dim-1]

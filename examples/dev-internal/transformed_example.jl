@@ -39,6 +39,7 @@ import BAT: CustomTransform, TransformedMCMCNoOpTuner
 using InverseFunctions
 using ArraysOfArrays
 using ValueShapes
+using MonotonicSplines
 
 
 function make_Path(testname::String,dir::String="/ceph/groups/e4/users/wweber/private/Master/Plots")
@@ -58,6 +59,58 @@ function flat2batsamples(smpls_flat)
     weights = ones(length(smpls))
     logvals = zeros(length(smpls))
     return BAT.DensitySampleVector(smpls, logvals, weight = weights)
+end
+
+function make_slide(pdfpath1; slidepath = "/ceph/groups/e4/users/wweber/private/Master/Slides", title="Title")
+         
+    title = replace(title, "_" => "\\_")
+    file = open("$slidepath/plots.tex", "a")
+    write(file, "\\begin{frame}{$title}\n")
+    write(file, "   \\begin{figure}\n")
+    write(file, "       \\centering\n")
+    write(file, "       \\includegraphics[width=0.7\\textwidth]{$pdfpath1}\n")
+    write(file, "   \\end{figure}\n")
+    write(file, "\\end{frame}\n\n")
+    close(file)
+end
+
+function make_slide(pdfpath1,pdfpath2; slidepath = "/ceph/groups/e4/users/wweber/private/Master/Slides", title="Title")
+         
+    title = replace(title, "_" => "\\_")
+    file = open("$slidepath/plots.tex", "a")
+    write(file, "\\begin{frame}{$title}\n")
+    write(file, "   \\begin{figure}\n")
+    write(file, "       \\centering\n")
+    write(file, "       \\begin{subfigure}{0.49\\textwidth}\n")
+    write(file, "           \\includegraphics[width=\\textwidth]{$pdfpath1}\n")
+    write(file, "       \\end{subfigure}\n")
+    write(file, "       \\begin{subfigure}{0.49\\textwidth}\n")
+    write(file, "           \\includegraphics[width=\\textwidth]{$pdfpath2}\n")
+    write(file, "       \\end{subfigure}\n")
+    write(file, "   \\end{figure}\n")
+    write(file, "\\end{frame}\n\n")
+    close(file)
+end
+
+function make_slide(pdfpath1,pdfpath2,pdfpath3; slidepath = "/ceph/groups/e4/users/wweber/private/Master/Slides", title="Title")
+         
+    title = replace(title, "_" => "\\_")
+    file = open("$slidepath/plots.tex", "a")
+    write(file, "\\begin{frame}{$title}\n")
+    write(file, "   \\begin{figure}\n")
+    write(file, "       \\centering\n")
+    write(file, "       \\begin{subfigure}{0.44\\textwidth}\n")
+    write(file, "           \\includegraphics[width=\\textwidth]{$pdfpath1}\n")
+    write(file, "       \\end{subfigure}\n")
+    write(file, "       \\begin{subfigure}{0.44\\textwidth}\n")
+    write(file, "           \\includegraphics[width=\\textwidth]{$pdfpath2}\n")
+    write(file, "       \\end{subfigure}\n")
+    write(file, "       \\begin{subfigure}{0.35\\textwidth}\n")
+    write(file, "           \\includegraphics[width=\\textwidth]{$pdfpath3}\n")
+    write(file, "       \\end{subfigure}\n")
+    write(file, "   \\end{figure}\n")
+    write(file, "\\end{frame}\n\n")
+    close(file)
 end
 
 
@@ -90,6 +143,10 @@ function test_MCMC(posterior,path::String)
 end
 
 
+function nummer(x; digits=5)
+    return string(x, pad=digits, base=10)
+end
+
 ####################################################################
 # Ensembles without flow
 ####################################################################
@@ -112,7 +169,9 @@ function EnsembleSampling(posterior, f;use_mala=true, tuning=MCMCFlowTuning(),
     return flatview(x.v), y.flow
 end
 
+function make_Gif
 
+end
 # density_notrafo = convert(BAT.AbstractMeasureOrDensity, posterior)
 # densit, trafo = BAT.transform_and_unshape(PriorToGaussian(), density_notrafo, context)
 # 
@@ -153,6 +212,13 @@ end
 # 
 # z_mala, flow2 =EnsembleSampling(posterior,f,true);
 # plot(z_mala,bins=200,xlims=xl)
+
+function normalize(data::Matrix)
+    mean_value = mean(data)
+    std_value = std(data)
+    normalized_data = (data .- mean_value) ./ std_value
+    return normalized_data
+end
 
 ####################################################################
 # Test the FlowTuner
@@ -222,65 +288,155 @@ function mvnormal_negll_flow2(flow::F, x::AbstractMatrix{<:Real}) where F<:Abstr
     nsamples = size(x, 2) 
     
     y, ladj = with_logabsdet_jacobian(flow, x)
-    ll = (sum(logpdf.(Normal(0,1),flow(x))) - sum(ladj)) / nsamples # Ich rechne hier Minus statt plus !
+    ll = (sum(logpdf.(Normal(0,1),flow(x))) + sum(ladj)) / nsamples # Ich rechne hier Minus statt plus !
 
     return -ll
 end
 
-
-function make_slide(pdfpath1,pdfpath2; slidepath = "/ceph/groups/e4/users/wweber/private/Master/Slides", title="Title")
-         
-    file = open("$slidepath/plots.tex", "a")
-    write(file, "\\begin{frame}{$title}\n")
-    write(file, "   \\begin{figure}\n")
-    write(file, "       \\centering\n")
-    write(file, "       \\begin{subfigure}{0.5\\textwidth}\n")
-    write(file, "           \\includegraphics[width=0.5\\textwidth]{$pdfpath1}\n")
-    write(file, "       \\end{subfigure}\n")
-    write(file, "       \\begin{subfigure}{0.5\\textwidth}\n")
-    write(file, "           \\includegraphics[width=0.5\\textwidth]{$pdfpath2}\n")
-    write(file, "       \\end{subfigure}\n")
-    write(file, "   \\end{figure}\n")
-    write(file, "\\end{frame}\n\n")
-    close(file)
+function plot_spline(flow, samples)
+    #p=plot(flat2batsamples(samp'),alpha=0.3)
+    x1,x2 = quantile(samp[1,:],0.96), quantile(samp[1,:],0.04)
+    p=plot(Shape([x1, x2, x2, x1], [-5.5,-5.5,5.5,5.5]), fillalpha=0.25, c=:yellow, linewidth=0.0, label=false, line=false)
+    w,h,d = MonotonicSplines.get_params(flow.flow.fs[2].flow.fs[1].nn(flow.flow.fs[1](samples)[[false],:], 
+                                        flow.flow.fs[2].flow.fs[1].nn_parameters, 
+                                        flow.flow.fs[2].flow.fs[1].nn_state)[1], 1)
+    x = inverse(flow.flow.fs[1])(reshape(w[:,1,1],1,length(w[:,1,1])))'
+    #println(reshape(w[:,1,1],1,length(w[:,1,1])))
+    y = h[:,1,1]                        
+    plot!(x,y, seriestype = :scatter, label="Knots", legend =true,xlabel="Input value", ylabel="Output value")
+    x=range(minimum(x)-0.5,stop=maximum(x)+0.5,length=10^4)
+    y = reshape(flow(Matrix(reshape(x,1,10^4))),10^4,1)
+    plot!(x,y, linewidth = 2.5, label="Spline function")
+    plot!(x, ones(length(x))*-2, fillrange=ones(length(x))*2, fillalpha=0.25,c=:yellow ,label="2 sigma region of propability")
+    ylims!(-5.5,5.5)
+    #savefig("$path/spline.pdf")
+    return p
 end
-
 
 ####################################################################
 # Train flow on existing samples
 ####################################################################
-function train_flow(samples::Matrix, path::String, minibatches, epochs, batchsize)
-    flow=build_flow(samples) #samples)  # ATTENTION: There are big Problems if there is some ScaleShifting in the Flow!
-    loss = []
+function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=10,
+                    lr=5f-2, K = 8, flow = build_flow(samples./(std(samples)/2), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, loss = [])
     vali = []
+    vali_af =[]
     train = []
-    lr=1f-3
-    for i in 1:(round(Int,(size(samples,2)/batchsize))-1)
-        #lr=lr*0.995
+    path = make_Path("evolution",path)
+    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+                                                    nbatches=1,nepochs=1, shuffle_samples=true);
+    
+    plot_spline(flow,samples)
+    savefig("$path/spline.pdf")
+    lr=round(lr,digits=6)
+    make_slide("$path/spline.pdf",title="Algo(batchsize=$batchsize, epochs=Pre-Training, lr=$lr)")                                    
+    for i in 1:(round(Int,(size(samples,2)/batchsize)))
         flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
-                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=true);
+                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
         #for element in loss_hist[2][1]
-        push!(loss, mean(loss_hist[2][1]))#element)
-        push!(vali, mvnormal_negll_flow2(flow,samples))
-        push!(train, mvnormal_negll_flow2(flow,samples[1:end,((i-1)*batchsize)+1:i*batchsize]))
+        #    push!(loss, element)
         #end
+        push!(loss, mean(loss_hist[2][1]))#element)
+        #push!(vali, mvnormal_negll_flow2(flow,samples))
+        push!(vali_af, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples)))
+
+        if (i%eperplot) == 0
+            x = 1:length(loss)
+            l =round(vali_af[end],digits=3)
+            plot(x, loss, label="State loss", xlabel="State", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm)
+            ylims!(1.2,1.8)
+            x = 1:length(vali_af)
+            #plot!(x, vali, label="Validation Loss")
+            plot!(x, vali_af, label="Validation Loss (AF)")
+            savefig("$path/Loss_vali$i.pdf")
+            plot_flow(flow,samples)
+            savefig("$path/ftruth$i.pdf")
+            plot_spline(flow,samples)
+            savefig("$path/spline$i.pdf")
+    
+            lr=round(lr,digits=6)
+            make_slide("$path/ftruth$i.pdf","$path/spline$i.pdf","$path/Loss_vali$i.pdf",title="Algo(batchsize=$batchsize, epochs=$i*$eperplot, minib=$minibatches, lr=$lr)")    
+        end
+        lr=lr*lrf
     end
-    x = 1:length(loss)
-    plot(x, loss, label="State loss", xlabel="State", ylabel="Loss", title="Loss", left_margin = 6Plots.mm)
-    savefig("$path/Loss.pdf")
-
-    x = 1:length(vali)
-    plot!(x, vali, label="Validation Loss")
-    plot!(1:length(train), train, label="Trainings Loss")
-    savefig("$path/Loss_vali.pdf")
-
-    plot(flat2batsamples(flow(samples)'))
-    savefig("$path/ftruth.pdf")
-    println(lr)
-    make_slide("$path/Loss_vali.pdf","$path/ftruth.pdf",title="bs_$batchsize-ep_$epochs-minib_$minibatches")
     return BAT.CustomTransform(flow)
 end
 
+
+function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
+            lr=5f-2, K = 8, eperplot =10, flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, loss = [])
+
+    path = make_Path("evolution",path)
+    mkdir("$path/Loss_vali")
+    mkdir("$path/ftruth")
+    mkdir("$path/spline")
+    animation_ft = Animation()
+    ani_spline = Animation()
+    
+    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+                                                nbatches=1,nepochs=1, shuffle_samples=true);
+
+    plot_spline(flow,samples)
+    savefig("$path/spline.pdf")
+    lr=round(lr,digits=6)
+    make_slide("$path/spline.pdf",title="Training(batchsize=$batchsize, epochs=Pre-Training, lr=$lr)")
+                                                    
+    for epoch in 1:Int(epochs/eperplot)
+        println(epoch)
+        flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:batchsize],#[1:end,((i-1)*batchsize)+1:i*batchsize],
+                                        flow, Adam(lr), nbatches=minibatches,nepochs=eperplot, shuffle_samples=true);#false);
+        for element in loss_hist[2][1]
+            push!(loss, element)
+        end
+
+        create_Plots(flow, samples, loss, path, eperplot*epoch, animation_ft, ani_spline)
+        lr=round(lr,digits=6)
+        #make_slide("$path/ftruth/$(nummer(epoch)).pdf","$path/spline/$(nummer(epoch)).pdf","$path/Loss_vali/$(nummer(epoch)).pdf",
+        #            title="Training(batchsize=$batchsize, epochs=$epoch*$eperplot, minib=$minibatches, lr=$lr)")
+        lr=lr*lrf
+    end
+    
+    # Make gifs
+    #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/ftruth`)
+    #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/spline`)   
+    gif(animation_ft, "$path/ftruth/transform.gif", fps=1)
+    gif(ani_spline, "$path/spline/spline.gif", fps=1)
+    lr=round(lr,digits=6)
+    make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
+                title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
+
+    return flow, loss, lr
+end
+
+
+function create_Plots(flow, samples, loss, path, epoch, animation_ft,ani_spline)
+    x = 1:length(loss)
+    l=round(loss[end],digits=3)
+    plot(x, loss, label="State loss", xlabel="State", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm)
+    ylims!(1.0,1.5)
+    savefig("$path/Loss_vali/$(nummer(epoch)).pdf")
+    plot_flow(flow,samples)
+    f=title!("$epoch epochs")
+    savefig("$path/ftruth/$(nummer(epoch)).pdf")
+    frame(animation_ft, f)
+    plot_spline(flow,samples)
+    s=title!("$epoch epochs")
+    savefig("$path/spline/$(nummer(epoch)).pdf")
+    frame(ani_spline, plot(f,s,layout=(1,2),size=(1600,600),margins=9Plots.mm))
+    closeall()
+
+    return nothing
+end
+
+
+function plot_flow(flow,samples)
+    p=plot(flat2batsamples(flow(samples)'))
+    x_values = Vector(range(-5, stop=5, length=1000))
+    f(x) = densityof(Normal(0,1.0),x)
+    y_values = f.(x_values)
+    plot!(x_values, y_values,density=true, linewidth=2.5,legend =true, label ="truth", color="black")
+    ylims!(0,0.45)
+    return p  
+end
 println("ende")
 # 
 # # Test the Flow without tuning

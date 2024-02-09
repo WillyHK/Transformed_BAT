@@ -1,10 +1,12 @@
 println(Base.Threads.nthreads())
 
+ENV["GKSwstype"] = "nul"
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/dev-internal/transformed_example.jl")
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
-    
-testname = "Animation2"#"testcase"
-distri = get_triplemode(1)#testcase(1)
+gr()  
+
+testname = "Animation_Algorithmus_1000_walker"
+distri = get_triplemode(1)
 posterior=distri
 context = BATContext(ad = ADModule(:ForwardDiff))
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
@@ -61,31 +63,30 @@ function test_sampling()
 end
 
 function test_training(samples)
-    nepochs=[5,100]#,20,80]
-    n_minibatch=[1]#,10]#,10]#,100]
+    K=20
+    nepochs=[1,3,5,10]
+    n_minibatch=[1]
     batchsizes = [1000]
-    lern = [0.01,0.1]#,0.001, 0.1]
+    lern = [1, 0.99, 0.95, 0.9, 0.8]
     for size in batchsizes
         for batches in n_minibatch
             for nepoch in nepochs
-                for lr in lern
-                    path = make_Path("$testname/lrstieg/$size-$nepoch-$batches")
-                    @time train_flow(samples,path, batches, nepoch,size,lr=lr)
-                    #path = make_Path("$testname/lrstieg2/$size-$nepoch-$batches")
-                    #@time train_flow2(samples,path, batches, nepoch,length(samples),lr=lr)#size)
+                for lrf in lern
+                    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+                    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
                 end
             end
         end
     end
 end
 
-#test_training(samp)
-K=20
-@time flow, loss, lr = train_flow2(samp,path, 1, 200,length(samp),lr=0.01, K=K,lrf=1,eperplot=10);
-#@time flow,loss,lr = train_flow2(samp,path, 1, 5,length(samp),lr=0.001,K=K,flow=flow,loss=loss,eperplot=1);
-#@time train_flow(samp,path, 1, 1,lr=0.01, batchsize=1000,K=K,lrf=0.99,eperplot=50);
-#@time train_flow(samp,path, 1, 5,lr=0.01, batchsize=1000,K=K,lrf=1,eperplot=50);
-#@time train_flow(samp,path, 1, 5,lr=0.01, batchsize=1000,K=K,lrf=0.99,eperplot=50);
+test_training(samp)
+
+# K=20
+# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.98);
+# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.99);
+# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.97);
+# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=1);
 
 #K=40
 #@time train_flow(samp,path, 1, 1,lr=0.01, batchsize=1000,K=K,lrf=1,eperplot=50);

@@ -316,56 +316,10 @@ end
 ####################################################################
 # Train flow on existing samples
 ####################################################################
-function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=10,
+function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/150),
                     lr=5f-2, K = 8, flow = build_flow(samples./(std(samples)/2), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, loss = [])
-    vali = []
-    vali_af =[]
-    train = []
-    path = make_Path("evolution",path)
-    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
-                                                    nbatches=1,nepochs=1, shuffle_samples=true);
-    
-    plot_spline(flow,samples)
-    savefig("$path/spline.pdf")
-    lr=round(lr,digits=6)
-    make_slide("$path/spline.pdf",title="Algo(batchsize=$batchsize, epochs=Pre-Training, lr=$lr)")                                    
-    for i in 1:(round(Int,(size(samples,2)/batchsize)))
-        flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
-                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
-        #for element in loss_hist[2][1]
-        #    push!(loss, element)
-        #end
-        push!(loss, mean(loss_hist[2][1]))#element)
-        #push!(vali, mvnormal_negll_flow2(flow,samples))
-        push!(vali_af, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples)))
-
-        if (i%eperplot) == 0
-            x = 1:length(loss)
-            l =round(vali_af[end],digits=3)
-            plot(x, loss, label="State loss", xlabel="State", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm)
-            ylims!(1.2,1.8)
-            x = 1:length(vali_af)
-            #plot!(x, vali, label="Validation Loss")
-            plot!(x, vali_af, label="Validation Loss (AF)")
-            savefig("$path/Loss_vali$i.pdf")
-            plot_flow(flow,samples)
-            savefig("$path/ftruth$i.pdf")
-            plot_spline(flow,samples)
-            savefig("$path/spline$i.pdf")
-    
-            lr=round(lr,digits=6)
-            make_slide("$path/ftruth$i.pdf","$path/spline$i.pdf","$path/Loss_vali$i.pdf",title="Algo(batchsize=$batchsize, epochs=$i*$eperplot, minib=$minibatches, lr=$lr)")    
-        end
-        lr=lr*lrf
-    end
-    return BAT.CustomTransform(flow)
-end
-
-
-function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
-            lr=5f-2, K = 8, eperplot =10, flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, loss = [])
-
-    path = make_Path("evolution",path)
+    path = make_Path("algo",path)
+    meta = plot_metadaten(path, length(samples),minibatches, epochs, batchsize, lr, K, lrf)
     mkdir("$path/Loss_vali")
     mkdir("$path/ftruth")
     mkdir("$path/spline")
@@ -375,20 +329,71 @@ function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsi
     AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
                                                 nbatches=1,nepochs=1, shuffle_samples=true);
 
-    plot_spline(flow,samples)
-    savefig("$path/spline.pdf")
+    vali = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))]
+    create_Plots(flow, samples, vali, path, 0, ani_spline, lr, meta, animation_ft=animation_ft)
     lr=round(lr,digits=6)
-    make_slide("$path/spline.pdf",title="Training(batchsize=$batchsize, epochs=Pre-Training, lr=$lr)")
-                                                    
-    for epoch in 1:Int(epochs/eperplot)
-        println(epoch)
+    make_slide("$path/spline/$(nummer(0)).pdf","$path/metadaten.pdf",title="Algo(batchsize=$batchsize, epochs=0, lr=$lr)")  
+    batches=round(Int,(size(samples,2)/batchsize))
+    for i in 1:batches
+        println("$i von $batches Iterationen")
+        flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
+                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
+        #for element in loss_hist[2][1]
+        #    push!(loss, element)
+        #end
+        push!(loss, mean(loss_hist[2][1]))#element)
+        push!(vali, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples)))
+
+        if (i%eperplot) == 0
+            create_Plots(flow, samples, vali, path, i*epochs, ani_spline, round(lr,digits=6),meta,animation_ft=animation_ft)
+    
+           # lr=round(lr,digits=6)
+            #make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
+            #            title="Algo(batchsize=$batchsize, epochs=$i*$epochs, minib=$minibatches, lr=$lr)")
+        end
+        lr=lr*lrf
+    end
+    epochs=batches
+    #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    lr=round(lr,digits=6)
+    make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
+                title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
+
+    #return flow, loss, lr
+    return BAT.CustomTransform(flow)
+end
+
+
+function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
+            lr=5f-2, K = 8, eperplot =ceil(Int,epochs/150), flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), 
+            lrf=1, loss = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))])
+
+    path = make_Path("train",path)
+    meta = plot_metadaten(path, length(samples),minibatches, epochs, batchsize, lr, K, lrf)
+    mkdir("$path/Loss_vali")
+    mkdir("$path/ftruth")
+    mkdir("$path/spline")
+    animation_ft = Animation()
+    ani_spline = Animation()
+    
+    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+                                                nbatches=1,nepochs=1, shuffle_samples=true);
+
+    create_Plots(flow, samples, loss, path, 0, ani_spline, lr, meta, animation_ft=animation_ft)
+    lr=round(lr,digits=6)
+    make_slide("$path/spline/$(nummer(0)).pdf","$path/metadaten.pdf",title="Train(batchsize=$batchsize, epochs=0, lr=$lr)")   
+
+    iters=Int(epochs/eperplot)
+    for epoch in 1:iters
+        println("$epoch von $iters Iterationen")
         flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:batchsize],#[1:end,((i-1)*batchsize)+1:i*batchsize],
                                         flow, Adam(lr), nbatches=minibatches,nepochs=eperplot, shuffle_samples=true);#false);
         for element in loss_hist[2][1]
             push!(loss, element)
         end
 
-        create_Plots(flow, samples, loss, path, eperplot*epoch, animation_ft, ani_spline)
+        create_Plots(flow, samples, loss, path, eperplot*epoch, ani_spline, round(lr,digits=6), meta, animation_ft=animation_ft)
         lr=round(lr,digits=6)
         #make_slide("$path/ftruth/$(nummer(epoch)).pdf","$path/spline/$(nummer(epoch)).pdf","$path/Loss_vali/$(nummer(epoch)).pdf",
         #            title="Training(batchsize=$batchsize, epochs=$epoch*$eperplot, minib=$minibatches, lr=$lr)")
@@ -398,8 +403,8 @@ function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsi
     # Make gifs
     #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/ftruth`)
     #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/spline`)   
-    gif(animation_ft, "$path/ftruth/transform.gif", fps=1)
-    gif(ani_spline, "$path/spline/spline.gif", fps=1)
+    #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
     lr=round(lr,digits=6)
     make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
                 title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
@@ -408,25 +413,40 @@ function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsi
 end
 
 
-function create_Plots(flow, samples, loss, path, epoch, animation_ft,ani_spline)
-    x = 1:length(loss)
-    l=round(loss[end],digits=3)
-    plot(x, loss, label="State loss", xlabel="State", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm)
-    ylims!(1.0,1.5)
-    savefig("$path/Loss_vali/$(nummer(epoch)).pdf")
-    plot_flow(flow,samples)
-    f=title!("$epoch epochs")
-    savefig("$path/ftruth/$(nummer(epoch)).pdf")
-    frame(animation_ft, f)
-    plot_spline(flow,samples)
-    s=title!("$epoch epochs")
-    savefig("$path/spline/$(nummer(epoch)).pdf")
-    frame(ani_spline, plot(f,s,layout=(1,2),size=(1600,600),margins=9Plots.mm))
-    closeall()
+function create_Plots(flow, samples, loss, path, epoch, ani_spline, lr, meta::Plots.Plot; animation_ft)
+    x = 1:length(loss);
+    l =round(loss[end],digits=4);
+    learn=plot(x, loss, label="Loss", xlabel="Epoch", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm);
+    ylims!(1.2,1.7);
+    savefig("$path/Loss_vali/$(nummer(epoch)).pdf");
+    plot_flow(flow,samples);
+    f=title!("$epoch epochs, lr = $lr");
+    savefig("$path/ftruth/$(nummer(epoch)).pdf");
+    #frame(animation_ft, f);
+    plot_spline(flow,samples);
+    s=title!("$epoch epochs lr= $lr");
+    savefig("$path/spline/$(nummer(epoch)).pdf");
+    a = plot(f,meta,layout=(1,2),size=(1200,450),margins=9Plots.mm)
+    b = plot(learn,s,layout=(1,2),size=(1200,450),margins=9Plots.mm)
+    frame(ani_spline, plot(a,b,layout=(2,1),size=(1200,900),margins=9Plots.mm));
+
+    closeall();
 
     return nothing
 end
 
+function plot_metadaten(path, samplesize,minibatches, epochs, batchsize, lr, K, lrf)
+    x=plot(size=(800, 600), legend=false, ticks=false, border=false, axis=false);
+    annotate!(0.5,1-0.1,"Pfad: $(path[1:49])");
+    annotate!(0.5,1-0.2,"$(path[50:end])");
+    annotate!(0.5,1-0.3,"Samplesize: $samplesize");
+    annotate!(0.5,1-0.4,"Knots: $K");
+    annotate!(0.5,1-0.5,"Sample_batchsize: $batchsize, Train_batchsize: $(Int(batchsize/minibatches))");
+    annotate!(0.5,1-0.6,"Epochs: $epochs");
+    annotate!(0.5,1-0.7,"Start LR: $lr, LR-Factor: $lrf");
+    savefig("$path/metadaten.pdf");
+    return x
+end
 
 function plot_flow(flow,samples)
     p=plot(flat2batsamples(flow(samples)'))

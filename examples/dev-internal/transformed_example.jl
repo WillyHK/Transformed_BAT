@@ -3,6 +3,8 @@ using Pkg
 @time begin
     Pkg.activate("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/Project.toml")
     Pkg.instantiate()
+    Pkg.add("Plots")
+#    Pkg.build("Plots"; force = true)
 end
 
 #using Revise
@@ -114,7 +116,22 @@ function make_slide(pdfpath1,pdfpath2,pdfpath3; slidepath = "/ceph/groups/e4/use
 end
 
 
-function test_MCMC(posterior,path::String)
+function aufteilen(arr::Vector{T}, block_size::Int) where T
+    num_elements = length(arr)
+    num_blocks = ceil(Int, num_elements / block_size)
+
+    aufgeteilte_arrays = [T[] for _ in 1:num_blocks]
+
+    for (index, value) in enumerate(arr)
+        block_index = mod(index - 1, num_blocks) + 1
+        push!(aufgeteilte_arrays[block_index], value)
+    end
+
+    return aufgeteilte_arrays
+end
+
+
+function test_MCMC(posterior,nsamp)#;path::String)
     ####################################################################
     # Sampling without ensembles and flow
     ####################################################################
@@ -125,8 +142,8 @@ function test_MCMC(posterior,path::String)
                 tuning_alg=TransformedMCMCNoOpTuning(), 
                 nchains=4, nsteps=354),
             context).result; # @TODO: Why are there so many samples?
-    plot(x,bins=200)#,xlims=xl)
-    savefig("$path/truth.pdf")
+    #plot(x,bins=200)#,xlims=xl)
+    #savefig("$path/truth.pdf")
     print("Number of samples: ")
     println(sum(x.weight))
     print("Acceptance rate: ")
@@ -138,7 +155,8 @@ function test_MCMC(posterior,path::String)
             push!(samples2,x.v[i])
         end
     end
-    samples = BAT2Matrix(samples2)
+    # reorder samples to simulate an ensemble_sampling_process
+    samples = BAT2Matrix(vcat(aufteilen(samples2[1:nsamp],nsamp/1000)...))
     return samples
 end
 
@@ -316,7 +334,7 @@ end
 ####################################################################
 # Train flow on existing samples
 ####################################################################
-function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/150),
+function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/120),
                     lr=5f-2, K = 8, flow = build_flow(samples./(std(samples)/2), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, loss = [])
     path = make_Path("algo",path)
     meta = plot_metadaten(path, length(samples),minibatches, epochs, batchsize, lr, K, lrf)
@@ -351,11 +369,15 @@ function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsiz
             #make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
             #            title="Algo(batchsize=$batchsize, epochs=$i*$epochs, minib=$minibatches, lr=$lr)")
         end
-        lr=lr*lrf
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
     end
     epochs=batches
     #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
-    gif(ani_spline, "$path/spline/spline.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=10)#min(ceil(Int,(epochs/eperplot)/15),10))
     lr=round(lr,digits=6)
     make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
                 title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
@@ -366,7 +388,7 @@ end
 
 
 function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
-            lr=5f-2, K = 8, eperplot =ceil(Int,epochs/150), flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), 
+            lr=5f-2, K = 8, eperplot=ceil(Int,(length(samples)/batchsize)/120), flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), 
             lrf=1, loss = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))])
 
     path = make_Path("train",path)
@@ -397,14 +419,18 @@ function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsi
         lr=round(lr,digits=6)
         #make_slide("$path/ftruth/$(nummer(epoch)).pdf","$path/spline/$(nummer(epoch)).pdf","$path/Loss_vali/$(nummer(epoch)).pdf",
         #            title="Training(batchsize=$batchsize, epochs=$epoch*$eperplot, minib=$minibatches, lr=$lr)")
-        lr=lr*lrf
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
     end
     
     # Make gifs
     #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/ftruth`)
     #run(`python /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Slides/gif.py $path/spline`)   
     #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
-    gif(ani_spline, "$path/spline/spline.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=10)#min(ceil(Int,(epochs/eperplot)/15),10))
     lr=round(lr,digits=6)
     make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
                 title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")

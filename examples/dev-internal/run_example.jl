@@ -5,17 +5,17 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "Animation_Algorithmus_1000_walker"
+testname = "Animation_Algorithmus_MCMC_10000_Samples_Descent_k20"
 distri = get_triplemode(1)
 posterior=distri
 context = BATContext(ad = ADModule(:ForwardDiff))
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
-path = make_Path(testname)
+#path = make_Path(testname)
 
-iid=Matrix(rand(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]),10^6)')
-#mcmc=test_MCMC(posterior,path)
+#iid=Matrix(rand(Normal(0,1.0),5*10^5)')
 n_samp=500000
-samp=iid[1:end,1:n_samp]
+mcmc=test_MCMC(posterior,n_samp)#,path)
+samp=mcmc[1:end,1:n_samp]
 #ff= BAT.CustomTransform(build_flow(samp))
 #mala, flow=EnsembleSampling(posterior,ff,nsteps=Int(n_samp/1000)+1,nwalker=100, tuning=TransformedMCMCNoOpTuning(),use_mala=false);
 #plot(flat2batsamples(mala'))
@@ -30,8 +30,8 @@ plot!(x_values, y_values*20,density=true, linewidth=3.2,legend =:bottomright, la
 #plot!(flat2batsamples(iid2), linetype = :steppre)
 
 
-savefig("$path/traindata.pdf")
-make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
+#savefig("$path/traindata.pdf")
+#make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
 
 #plot(flat2batsamples(iid))
 
@@ -62,12 +62,12 @@ function test_sampling()
     end
 end
 
-function test_training(samples)
+function test_algorithmus(samples)
     K=20
-    nepochs=[1,3,5,10]
+    nepochs=[3,5,10]
     n_minibatch=[1]
     batchsizes = [1000]
-    lern = [1, 0.99, 0.95, 0.9, 0.8]
+    lern = [0.995, 0.985]
     for size in batchsizes
         for batches in n_minibatch
             for nepoch in nepochs
@@ -78,20 +78,43 @@ function test_training(samples)
             end
         end
     end
+    size=1000
+    batches=2
+    nepochs=10
+    lrf=0,98
+    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
 end
 
-test_training(samp)
+function test_training(samples)
+    K=20
+    nepochs=[300]
+    n_minibatch=[1]
+    batchsizes = [size(samples,2)]
+    lern = [1, 0.995, 0.99, 0.985, 0.98]
+    for size in batchsizes
+        for batches in n_minibatch
+            for nepoch in nepochs
+                for lrf in lern
+                    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+                    @time train_flow2(samp,path, batches, nepoch,size,lr=0.01, K=K,lrf=lrf);
+                end
+            end
+        end
+    end
+end
 
-# K=20
-# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.98);
-# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.99);
-# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=0.97);
-# @time flow, loss, lr = train_flow2(samp,path, 1, 100,length(samp),lr=0.01, K=K,lrf=1);
+function test_algorithmus2(samples,nepoch,lrf)
+    K=20
+    batches=1
+    size=1000*10
+    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
+end
 
-#K=40
-#@time train_flow(samp,path, 1, 1,lr=0.01, batchsize=1000,K=K,lrf=1,eperplot=50);
-#@time train_flow(samp,path, 1, 5,lr=0.01, batchsize=1000,K=K,lrf=1,eperplot=50);
-#@time train_flow(samp,path, 1, 5,lr=0.01, batchsize=1000,K=K,lrf=0.99,eperplot=50);
+#test_training(samp)
+test_algorithmus2(samp,parse(Int, ARGS[2]),parse(Float64, ARGS[1]))
+
 println("ende")
 
 function runTestFlow(x::Int64)
@@ -142,17 +165,3 @@ function runTestFlow(x::Int64)
         println("Testnumber $x not known!")
     end
 end
-
-# @time begin # mag das Cluster nicht so
-#     using Base.Threads
-#     Threads.@threads for i in 4:4
-#         runTest(i)
-#     end
-# end
-#@time runTestFlow(4)
-#@time runTestFlow(5)
-#@time runTestFlow(3)
-#@time runTestFlow(2)
-#@time runTestFlow(1)
-#@time runTestFlow(parse(Int,ARGS[1]))
-

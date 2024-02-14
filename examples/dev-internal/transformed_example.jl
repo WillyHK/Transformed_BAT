@@ -3,8 +3,7 @@ using Pkg
 @time begin
     Pkg.activate("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/Project.toml")
     Pkg.instantiate()
-    Pkg.add("Plots")
-#    Pkg.build("Plots"; force = true)
+#    Pkg.add("Plots")
 end
 
 #using Revise
@@ -156,7 +155,7 @@ function test_MCMC(posterior,nsamp)#;path::String)
         end
     end
     # reorder samples to simulate an ensemble_sampling_process
-    samples = BAT2Matrix(vcat(aufteilen(samples2[1:nsamp],nsamp/1000)...))
+    samples = BAT2Matrix(vcat(aufteilen(samples2[1:nsamp],round(Int,nsamp/1000))...))
     return samples
 end
 
@@ -386,6 +385,69 @@ function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsiz
     return BAT.CustomTransform(flow)
 end
 
+
+function timed_training(iid::Matrix, samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/120),
+                    lr=5f-2, K = 8, flow = build_flow(samples./(std(samples)/2), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, vali = [])
+    path = make_Path("TIMED",path)
+    meta = plot_metadaten(path, length(samples),minibatches, epochs, batchsize, lr, K, lrf)
+    mkdir("$path/Loss_vali")
+    mkdir("$path/ftruth")
+    mkdir("$path/spline")
+    animation_ft = Animation()
+    ani_spline = Animation()
+    
+    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+                                                nbatches=1,nepochs=1, shuffle_samples=true);
+
+    vali = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))]
+    create_Plots(flow, samples, vali, path, 0, ani_spline, lr, meta, animation_ft=animation_ft)
+    lr=round(lr,digits=6)
+    make_slide("$path/spline/$(nummer(0)).pdf","$path/metadaten.pdf",title="Algo(batchsize=$batchsize, epochs=0, lr=$lr)")  
+    batches=round(Int,(size(samples,2)/batchsize))
+    zeit = time()
+    i=0
+    while (time()-zeit) < 600
+        i=i+1
+        if i>batches
+            i=1
+        end
+        println("$i von $batches Iterationen")
+        flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
+                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
+        #for element in loss_hist[2][1]
+        #    push!(loss, element)
+        #end
+        #push!(loss, mean(loss_hist[2][1]))#element)
+        push!(vali, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](iid)))
+
+        if (i%eperplot) == 0
+            create_Plots(flow, samples, vali, path, i*epochs, ani_spline, round(lr,digits=6),meta,animation_ft=animation_ft)
+    
+           # lr=round(lr,digits=6)
+            #make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
+            #            title="Algo(batchsize=$batchsize, epochs=$i*$epochs, minib=$minibatches, lr=$lr)")
+        end
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
+    end
+    # Mittelwert berechnen
+    midloss = mean(vali[end - ceil(Int, 0.1 * length(vali)) + 1:end])
+    file = open("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/dev-internal/2D_plot.txt", "a")
+    write(file, "$epochs, $lrf, $midloss\n")
+    close(file)
+    epochs=batches
+    #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=10)#min(ceil(Int,(epochs/eperplot)/15),10))
+    lr=round(lr,digits=6)
+    make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
+                title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
+
+    #return flow, loss, lr
+    return BAT.CustomTransform(flow)
+end
 
 function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
             lr=5f-2, K = 8, eperplot=ceil(Int,(length(samples)/batchsize)/120), flow = build_flow(samples, [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), 

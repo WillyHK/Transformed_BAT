@@ -5,17 +5,18 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "Animation_Algorithmus_MCMC_10000_Samples_Descent_k20"
+testname = "test"#Animation_Algorithmus_MCMC_1000_Samples_Descent_timed"
 distri = get_triplemode(1)
 posterior=distri
 context = BATContext(ad = ADModule(:ForwardDiff))
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
 #path = make_Path(testname)
 
-#iid=Matrix(rand(Normal(0,1.0),5*10^5)')
+iid=Matrix(rand(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]),5*10^5)')
 n_samp=500000
 mcmc=test_MCMC(posterior,n_samp)#,path)
 samp=mcmc[1:end,1:n_samp]
+samp2=iid[1:end,1:n_samp]
 #ff= BAT.CustomTransform(build_flow(samp))
 #mala, flow=EnsembleSampling(posterior,ff,nsteps=Int(n_samp/1000)+1,nwalker=100, tuning=TransformedMCMCNoOpTuning(),use_mala=false);
 #plot(flat2batsamples(mala'))
@@ -107,9 +108,9 @@ end
 function test_algorithmus2(samples,nepoch,lrf)
     K=20
     batches=1
-    size=1000*10
+    size=1000
     path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
-    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
+    @time timed_training(iid,samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
 end
 
 #test_training(samp)

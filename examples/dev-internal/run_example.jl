@@ -5,15 +5,17 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "15m_2D"#Animation_Algorithmus_MCMC_1000_Samples_Descent_timed"
+testname = "dpg"
+path = make_Path("$testname")
 distri = get_triplemode(1)
 posterior=distri
 context = BATContext(ad = ADModule(:ForwardDiff))
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
-#path = make_Path(testname)
+
+model = MixtureModel([MvNormal([-3],I(1)),MvNormal([0],I(1)),MvNormal([3],I(1))])
 
 n_samp=500000
-iid=Matrix(rand(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]),n_samp)')
+iid=Matrix(rand(model,n_samp))
 mcmc=test_MCMC(posterior,n_samp)#,path)
 samp=mcmc[1:end,1:n_samp]
 #samp2=iid[1:end,1:n_samp]
@@ -30,11 +32,14 @@ plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
 plot!(x_values, y_values*20,density=true, linewidth=3.2,legend =:bottomright, label ="truth", color="black")
 #plot!(flat2batsamples(iid2), linetype = :steppre)
 
-
-#savefig("$path/traindata.pdf")
+target_logpdf = x-> logpdf(model,x)  #
+#k(x) = densityof(posterior,x)
+savefig("$path/traindata.pdf")
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
-
+#yx=target_logpdf(nestedview(reshape(x_values,1,1000)))
 #plot(flat2batsamples(iid))
+#a(x) = densityof(posterior,x)
+#target_logpdf = x -> a.(x)
 
 function test_sampling()
     iters = 5
@@ -57,7 +62,6 @@ function test_sampling()
                                 nchains=nchain,
                                 nsteps=nstep,
                                 nwalker=nwalk)
-                            
             end
         end
     end
@@ -73,7 +77,7 @@ function test_algorithmus(samples)
         for batches in n_minibatch
             for nepoch in nepochs
                 for lrf in lern
-                    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+                    #path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
                     @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
                 end
             end
@@ -86,6 +90,7 @@ function test_algorithmus(samples)
     path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
     @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
 end
+
 
 function test_training(samples)
     K=20
@@ -109,14 +114,39 @@ function test_algorithmus2(samples,nepoch,lrf)
     K=20
     batches=1
     size=1000
-    path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
-    @time timed_training(iid,samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
+   # path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+    @time timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01, batchsize=size,K=K,lrf=lrf);
 end
 
+function test_Knots(samples,nepoch,lrf)
+    K=20
+    batches=1
+    size=1000
+   # path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
+   flow, opt_state, loss_hist =AdaptiveFlows.optimize_flow(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr),  # Precompile to be faster
+                loss=AdaptiveFlows.negll_flow, #loss_history = loss_hist,
+                logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf),
+   nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
+    @time timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01, batchsize=size,K=8,lrf=lrf);
+end
 #test_training(samp)
-test_algorithmus2(samp,parse(Int, ARGS[2]),parse(Float64, ARGS[1]))
+#test_algorithmus2(samp,parse(Int, ARGS[2]),parse(Float64, ARGS[1]))
+
+file = open("$path/2D.txt", "a")
+    write(file, "Epoch, lrf,vali, train\n")
+close(file)
+for epochs in [18 21 24 27 30 33]
+    for lrf in [0.975 0.97 0.965 0.96 0.955 0.95 0.945]
+        test_algorithmus2(samp,epochs,lrf)
+    end
+end
+
 
 println("ende")
+
+bild= "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Pictures/dpg2.png"
+
+
 
 function runTestFlow(x::Int64)
     directory = "/ceph/groups/e4/users/wweber/private/Master/Plots/tryCeph"

@@ -3,7 +3,7 @@ using Pkg
 @time begin
     Pkg.activate("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/Project.toml")
     Pkg.instantiate()
-#    Pkg.add("Plots")
+    #Pkg.add("Plots")
 end
 
 #using Revise
@@ -386,9 +386,9 @@ function train_flow(samples::Matrix, path::String, minibatches, epochs; batchsiz
 end
 
 
-function timed_training(iid::Matrix, samples::Matrix, path::String, minibatches, epochs; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/100),
+function timed_training(iid::Matrix, samples::Matrix, path2::String, minibatches, epochs, target_logpdf; batchsize=1000, eperplot=ceil(Int,(length(samples)/batchsize)/100),
                     lr=5f-2, K = 8, flow = build_flow(samples./(std(samples)/2), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]), lrf=1, vali = [])
-    path = make_Path("TIMED",path)
+    path = make_Path("$batchsize-$epochs-$minibatches-$lrf",path2)
     meta = plot_metadaten(path, length(samples),minibatches, epochs, batchsize, lr, K, lrf)
     mkdir("$path/Loss_vali")
     mkdir("$path/ftruth")
@@ -396,33 +396,42 @@ function timed_training(iid::Matrix, samples::Matrix, path::String, minibatches,
     animation_ft = Animation()
     ani_spline = Animation()
     
-    AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
-                                                nbatches=1,nepochs=1, shuffle_samples=true);
+    #AdaptiveFlows.optimize_flow_sequentially(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+    #                                            nbatches=1,nepochs=1, shuffle_samples=true);
+    c = AdaptiveFlows.optimize_flow(samples[1:end,1:10],flow, Adam(lr),  # Precompile to be faster
+                                                loss=AdaptiveFlows.negll_flow,
+                                                logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf),
+                                                nbatches=1,nepochs=1, shuffle_samples=true).loss_hist
 
-    vali = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](iid))]
-    create_Plots(flow, samples, vali, path, 0, ani_spline, lr, meta, animation_ft=animation_ft)
+    vali = [2.0]#validate_pushfwd_negll(flow,iid)]#[AdaptiveFlows.negll_flow_loss(flow.flow.fs[2],flow.flow.fs[1](iid),target_logpdf(flow.flow.fs[1](iid)),(f=target_logpdf,))]   
+    create_Plots(flow, samples, vali, path, 0, ani_spline, lr, meta, animation_ft=animation_ft, vali=vali)
     lr=round(lr,digits=6)
     make_slide("$path/spline/$(nummer(0)).pdf","$path/metadaten.pdf",title="Algo(batchsize=$batchsize, epochs=0, lr=$lr)")  
     batches=round(Int,(size(samples,2)/batchsize))
     zeit = time()
     i=0
-    loss = [mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))]
-    while (time()-zeit) < 900
+    loss = [2.0]#validate_pushfwd_negll(flow,samples)]#mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples))]
+    loss_hist=c
+    while (time()-zeit) < 600
         i=i+1
         if i>batches
             i=1
         end
         println("$i von $batches Iterationen")
-        flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
-                                                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
+        #flow, opt_state, loss_hist = AdaptiveFlows.optimize_flow_sequentially(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr), 
+        #                                            nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
+        flow, opt_state, loss_hist =AdaptiveFlows.optimize_flow(samples[1:end,((i-1)*batchsize)+1:i*batchsize],flow, Adam(lr),  # Precompile to be faster
+                    loss=AdaptiveFlows.negll_flow, #loss_history = loss_hist,
+                    logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf),
+                    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
         #for element in loss_hist[2][1]
         #    push!(loss, element)
         #end
-        push!(loss, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples)))#element)
-        push!(vali, mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](iid)))
+        push!(loss, mean(loss_hist[2][1]))#validate_pushfwd_negll(flow,samples))#mvnormal_negll_flow(flow.flow.fs[2],flow.flow.fs[1](samples)))#element)
+        push!(vali,  mean(loss_hist[2][1]))#validate_pushfwd_negll(flow,iid))
 
-        if (i%eperplot) == 0
-            create_Plots(flow, samples, vali, path, i*epochs, ani_spline, round(lr,digits=6),meta,animation_ft=animation_ft, vali=vali)
+        if (true)#(i%eperplot) == 0
+            create_Plots(flow, samples, loss, path, i*epochs, ani_spline, round(lr,digits=6),meta,animation_ft=animation_ft, vali=vali)
     
            # lr=round(lr,digits=6)
             #make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
@@ -437,18 +446,47 @@ function timed_training(iid::Matrix, samples::Matrix, path::String, minibatches,
     # Mittelwert berechnen
     midloss = mean(vali[end - ceil(Int, 0.1 * length(vali)) + 1:end])
     midloss2 = mean(loss[end - ceil(Int, 0.1 * length(vali)) + 1:end])
-    file = open("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/dev-internal/2D_plot_vali.txt", "a")
+    file = open("$path2/2D.txt", "a")
     write(file, "$epochs, $lrf, $midloss, $midloss2\n")
     close(file)
     epochs=batches
     #gif(animation_ft, "$path/ftruth/transform.gif", fps=min(ceil(Int,(epochs/eperplot)/15),10))
-    gif(ani_spline, "$path/spline/spline.gif", fps=5)#min(ceil(Int,(epochs/eperplot)/15),10))
+    gif(ani_spline, "$path/spline/spline.gif", fps=3)#min(ceil(Int,(epochs/eperplot)/15),10))
     lr=round(lr,digits=6)
     make_slide("$path/ftruth/$(nummer(epochs)).pdf","$path/spline/$(nummer(epochs)).pdf","$path/Loss_vali/$(nummer(epochs)).pdf",
                 title="Training(batchsize=$batchsize, epochs=$epochs, minib=$minibatches, lr=$lr)")
 
     #return flow, loss, lr
     return BAT.CustomTransform(flow)
+end
+
+
+function validate_pushfwd_negll(flow,samp)
+    f=AdaptiveFlows.PushForwardLogDensity(FlowModule(InvMulAdd(I(size(samp,1)), 
+        zeros(size(samp,1))), false), AdaptiveFlows.std_normal_logpdf)
+    return AdaptiveFlows.negll_flow_loss(flow.flow.fs[2],flow.flow.fs[1](samp), f(flow.flow.fs[1](samp)), f)
+end
+
+function validate_pushfwd_KLDiv(flow,samp)
+    f=AdaptiveFlows.PushForwardLogDensity(FlowModule(InvMulAdd(I(size(samp,1)), 
+        zeros(size(samp,1))), false), AdaptiveFlows.std_normal_logpdf)
+    #return AdaptiveFlows.KLDiv_flow_loss(flow.flow.fs[2],flow.flow.fs[1](samp), f(flow.flow.fs[1](samp)), f)
+    x=flow.flow.fs[1](samp)
+    logd_orig = f(flow.flow.fs[1](samp))
+    nsamples = size(x, 2) 
+    flow_corr = flow.flow.fs[2]#fchain(flow,f.f)
+    #logpdf_y = logpdfs[2].logdensity
+    y, ladj = with_logabsdet_jacobian(flow_corr, x)
+    ll = target_logpdf(x) - vec(ladj)
+    KLDiv = sum(exp.(ll) .* ((ll) - AdaptiveFlows.std_normal_logpdf(y))) / nsamples
+end
+
+function negll_flow_loss2(flow::F, x::AbstractMatrix{<:Real}, logpdf::Function) where F<:AbstractFlow
+    nsamples = size(x, 2) 
+    flow_corr = fchain(flow,logpdf.f)
+    y, ladj = with_logabsdet_jacobian(flow_corr, x)
+    ll = (sum(logpdf.logdensity(y)) + sum(ladj)) / nsamples
+    return -ll
 end
 
 function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsize; 
@@ -503,20 +541,20 @@ function train_flow2(samples::Matrix, path::String, minibatches, epochs, batchsi
 end
 
 
-function create_Plots(flow, samples, loss, path, epoch, ani_spline, lr, meta::Plots.Plot; vali=[], animation_ft)
+function create_Plots(flow, samples, loss, path, epoch, ani_spline, lr, meta::Plots.Plot; vali=[0], animation_ft)
     x = 1:length(loss);
-    l =round(loss[end],digits=4);
-    learn=plot(x, loss, label="Loss", xlabel="Epoch", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm);
+    l =round(vali[end],digits=4);
+    plot(x, loss, label="Loss", xlabel="Epoch", ylabel="Loss", title="Loss, End=$l", left_margin = 9Plots.mm, bottom_margin=7Plots.mm);
     x = 1:length(vali);
     #l =round(vali[end],digits=4);
-    plot!(x, vali, label="Vali_Loss");
-    ylims!(1.2,1.7);
+    #learn=plot!(x, vali, label="Loss");
+    learn=ylims!(1.55,1.75);
     savefig("$path/Loss_vali/$(nummer(epoch)).pdf");
-    plot_flow(flow,samples);
-    f=title!("$epoch epochs, lr = $lr");
+    f=plot_flow(flow,samples);
+    #f=title!("$epoch epochs, lr = $lr");
     savefig("$path/ftruth/$(nummer(epoch)).pdf");
     #frame(animation_ft, f);
-    plot_spline(flow,samples);
+    ###plot_spline(flow,samples);
     s=title!("$epoch epochs lr= $lr");
     savefig("$path/spline/$(nummer(epoch)).pdf");
     a = plot(f,meta,layout=(1,2),size=(1200,450),margins=9Plots.mm)
@@ -543,11 +581,11 @@ end
 
 function plot_flow(flow,samples)
     p=plot(flat2batsamples(flow(samples)'))
-    x_values = Vector(range(-5, stop=5, length=1000))
+    x_values = Vector(range(-5.5, stop=5.5, length=1000))
     f(x) = densityof(Normal(0,1.0),x)
     y_values = f.(x_values)
-    plot!(x_values, y_values,density=true, linewidth=2.5,legend =true, label ="truth", color="black")
-    ylims!(0,0.45)
+    plot!(x_values, y_values,density=true, linewidth=2.5,legend =:topright, label ="N(0,1)", color="black")
+    ylims!(0,0.5)
     return p  
 end
 println("ende")

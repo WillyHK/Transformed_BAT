@@ -227,5 +227,5 @@ function get_iid(peakpositions,dim,n)
         push!(peakss, MvNormal(collect(peak),I(dim)))
     end
     model = MixtureModel(peakss)
-    return Matrix(rand(model,n))
+    return Matrix(rand(model,n)), x-> logpdf(model,x)
 end

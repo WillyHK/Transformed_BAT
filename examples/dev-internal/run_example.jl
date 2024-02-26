@@ -5,37 +5,35 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "mcmc-studie"
+testname = "5dims_KLDiv"
 path = make_Path("$testname")
-context = BATContext(ad = ADModule(:ForwardDiff))
-dims = 1
+dims = 5
 Knots = 20
 #distri = get_testcase(dims)
 distri = get_triplemode(dims)
 
+context = BATContext(ad = ADModule(:ForwardDiff))
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
 target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
 n_samp=500000
 
-iid = get_iid([-3,0,3],dims,n_samp)
+iid, target_logpdf2 = get_iid([-3,0,3],dims,n_samp)
 samp=iid
 
-# TODO KLDiv_flow gibt leider irgendwie regelmäßig negative Werte und trainiert auch nicht richtig :(
-# a,b,c=train(samp,target_logpdf,loss=AdaptiveFlows.KLDiv_flow,epochs=10,batches=10)
-# plot_loss_alldimension(path,c[2][1])
+#a,b,c=train(samp,target_logpdf2,loss=AdaptiveFlows.KLDiv_flow,epochs=10,batches=10,flow)
+#plot_loss_alldimension(path,c[2][1])
 
 if dims < 5
     flow = build_flow(samp./(std(samp)/2), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
     mcmc, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, 
-                                tuning=MCMCFlowTuning(),use_mala=true); # Altenative: TransformedMCMCNoOpTuning()
+                                tuning=TransformedMCMCNoOpTuning(),use_mala=true); # Altenative: MCMCFlowTuning()
     samp=mcmc
-
-    #mcmc=test_MCMC(posterior,n_samp)#,path)
-    #samp=mcmc[1:end,1:n_samp]
+    mcmc=test_MCMC(posterior,n_samp) # TODO Sampling ohne Ensemble funktioniert deutlich besser
+    samp=mcmc[1:end,1:n_samp]
 end
 
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
-title!("$(size(samp)), mala, flow")
+title!("$(size(samp)), no Ensembles")
 if (dims == 1)
     x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
     y(x) = densityof(posterior,[x])
@@ -45,9 +43,6 @@ if (dims == 1)
 end
 savefig("$path/traindata.pdf")
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
-
-
-BEENDE
 
 function test_sampling()
     iters = 5
@@ -130,7 +125,8 @@ function test_batchwise(samples,nepoch,lrf;batches=10)
     K=20
     minibatches=1
     size=1000
-    return batchwise_training(iid,samples,path, minibatches, nepoch,target_logpdf,lr=0.01,batchsize=size,K=K,lrf=lrf,batches=batches)#,loss_f=AdaptiveFlows.KLDiv_flow);
+    return batchwise_training(iid,samples,path, minibatches, nepoch,target_logpdf2, loss_f=AdaptiveFlows.KLDiv_flow,
+                              lr=0.01,batchsize=size,K=K,lrf=lrf,batches=batches);
 end
 
 function test_Knots(samples,nepoch,lrf)
@@ -153,10 +149,10 @@ end
 #file = open("$path/2D.txt", "a")
 #    write(file, "Epoch, lrf,vali, train\n")
 #close(file)
-for epochs in [5, 9, 13, 17, 21]
-    for lrf in [0.975 0.97 0.965 0.96 0.955 0.95 0.945]
+for epochs in [1, 5, 9, 13, 17, 21]
+    for lrf in [0.99 0.97 0.96 0.96 0.95 0.94]
         #test_algorithmus2(samp,epochs,lrf,runtime=1200)
-        test_batchwise(samp,epochs,lrf,batches=100)
+        test_batchwise(samp,epochs,lrf,batches=200)
     end
 end
 

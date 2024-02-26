@@ -247,9 +247,9 @@ function transformed_mcmc_step!!(
 
     #tuner_new=tuner
     if (tuner isa MCMCFlowTuner)
-        tuner_new, f_new = tune_mcmc_transform!!(tuner, f, state_x_new.v, context)
+        tuner_new, f_new = tune_mcmc_transform!!(tuner, f, state_x_new.v, μ, context)
         f=f_new.result
-        loss = f_new.loss_hists[2][1]
+        loss = f_new.loss_hist[2][1]
         open("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/data.txt", "a") do file
             write(file, "$loss")
         end

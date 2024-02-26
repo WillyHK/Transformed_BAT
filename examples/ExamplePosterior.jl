@@ -209,3 +209,20 @@ function get_kamm(dim=3)
     posterior = PosteriorDensity(likelihood, prior);
     return posterior
 end
+
+
+function get_multimodal(dim=3)
+    label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
+    value = [ Uniform(-25,25) for i in 1:dim]
+    prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    likelihood = params -> begin      
+        r=0
+        for i in 1:dim
+            r+= logpdf(MixtureModel(Normal, [(-16,1.0),(-8,1.0),(0,1.0),(8,1.0),(16,1.0)],[0.35,0.3,0.2,0.1,0.05]), params[i])
+        end
+        return LogDVal(r)
+    end
+    posterior = PosteriorDensity(likelihood, prior);
+    return posterior
+end

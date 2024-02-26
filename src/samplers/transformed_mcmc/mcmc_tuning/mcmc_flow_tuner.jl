@@ -40,13 +40,16 @@ function tune_mcmc_transform!!(
     tuner::MCMCFlowTuner, 
     flow::AdaptiveFlows.AbstractFlow,
     x::AbstractArray,
+    target,
     context::BATContext
 )   
     # TODO find better way to handle ElasticMatrices
     global g_state_flow_optimization = (x, flow, tuner)
-    #bre
 
-    flow_new = AdaptiveFlows.optimize_flow_sequentially(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, nbatches = tuner.n_batches, nepochs = tuner.n_epochs, shuffle_samples = true)
+    target_logpdf = x -> BAT.checked_logdensityof(target).(x)
+    flow_new = AdaptiveFlows.optimize_flow(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, loss=AdaptiveFlows.negll_flow, nbatches = tuner.n_batches, 
+                                                        nepochs = tuner.n_epochs, shuffle_samples = true, logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf))
+
     tuner_new = MCMCFlowTuner(AdaptiveFlows.Adam(tuner.optimizer.eta*0.98), tuner.n_batches,tuner.n_epochs) # might want to update the training parameters 
 
     return tuner_new, flow_new

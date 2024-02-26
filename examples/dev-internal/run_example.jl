@@ -5,41 +5,49 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "dpg"
+testname = "mcmc-studie"
 path = make_Path("$testname")
-distri = get_triplemode(1)
-posterior=distri
 context = BATContext(ad = ADModule(:ForwardDiff))
+dims = 1
+Knots = 20
+#distri = get_testcase(dims)
+distri = get_triplemode(dims)
+
 posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
-
-model = MixtureModel([MvNormal([-3],I(1)),MvNormal([0],I(1)),MvNormal([3],I(1))])
-
+target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
 n_samp=500000
-iid=Matrix(rand(model,n_samp))
-mcmc=test_MCMC(posterior,n_samp)#,path)
-samp=mcmc[1:end,1:n_samp]
-#samp2=iid[1:end,1:n_samp]
-#ff= BAT.CustomTransform(build_flow(samp))
-#mala, flow=EnsembleSampling(posterior,ff,nsteps=Int(n_samp/1000)+1,nwalker=100, tuning=TransformedMCMCNoOpTuning(),use_mala=false);
-#plot(flat2batsamples(mala'))
-#samp=Matrix(mala)[1:end,1:n_samp+1]
-#samp=iid[1:end,rand(1:length(iid),n_samp)]#[1:end,1:100001]
 
-x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
-y(x) = densityof(posterior,[x])
-y_values = y.(x_values)
+iid = get_iid([-3,0,3],dims,n_samp)
+samp=iid
+
+# TODO KLDiv_flow gibt leider irgendwie regelmäßig negative Werte und trainiert auch nicht richtig :(
+# a,b,c=train(samp,target_logpdf,loss=AdaptiveFlows.KLDiv_flow,epochs=10,batches=10)
+# plot_loss_alldimension(path,c[2][1])
+
+if dims < 5
+    flow = build_flow(samp./(std(samp)/2), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
+    mcmc, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, 
+                                tuning=MCMCFlowTuning(),use_mala=true); # Altenative: TransformedMCMCNoOpTuning()
+    samp=mcmc
+
+    #mcmc=test_MCMC(posterior,n_samp)#,path)
+    #samp=mcmc[1:end,1:n_samp]
+end
+
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
-plot!(x_values, y_values*20,density=true, linewidth=3.2,legend =:bottomright, label ="truth", color="black")
-#plot!(flat2batsamples(iid2), linetype = :steppre)
-
-target_logpdf = x-> logpdf(model,x)  #
-#k(x) = densityof(posterior,x)
+title!("$(size(samp)), mala, flow")
+if (dims == 1)
+    x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
+    y(x) = densityof(posterior,[x])
+    y_values = y.(x_values)
+    factor = posterior.prior.bounds.vol.hi[1]-posterior.prior.bounds.vol.lo[1]
+    plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =:topright, label ="truth", color="black")
+end
 savefig("$path/traindata.pdf")
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
-#yx=target_logpdf(nestedview(reshape(x_values,1,1000)))
-#plot(flat2batsamples(iid))
-#a(x) = densityof(posterior,x)
-#target_logpdf = x -> a.(x)
+
+
+BEENDE
 
 function test_sampling()
     iters = 5
@@ -110,12 +118,19 @@ function test_training(samples)
     end
 end
 
-function test_algorithmus2(samples,nepoch,lrf)
+function test_algorithmus2(samples,nepoch,lrf;runtime=600)
     K=20
     batches=1
     size=1000
-   # path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
-    @time timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01, batchsize=size,K=K,lrf=lrf);
+
+   timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01,batchsize=size,K=K,lrf=lrf,runtime=runtime)#,loss_f=AdaptiveFlows.KLDiv_flow);
+end
+
+function test_batchwise(samples,nepoch,lrf;batches=10)
+    K=20
+    minibatches=1
+    size=1000
+    return batchwise_training(iid,samples,path, minibatches, nepoch,target_logpdf,lr=0.01,batchsize=size,K=K,lrf=lrf,batches=batches)#,loss_f=AdaptiveFlows.KLDiv_flow);
 end
 
 function test_Knots(samples,nepoch,lrf)
@@ -131,21 +146,25 @@ function test_Knots(samples,nepoch,lrf)
 end
 #test_training(samp)
 #test_algorithmus2(samp,parse(Int, ARGS[2]),parse(Float64, ARGS[1]))
+#knot_gif(path,samp,target_logpdf,bis=1)
+#@time test_algorithmus2(samp,1,0.995,runtime=120)
+@time flow,vali = test_batchwise(samp,10,0.99,batches=2)
 
-file = open("$path/2D.txt", "a")
-    write(file, "Epoch, lrf,vali, train\n")
-close(file)
-for epochs in [18 21 24 27 30 33]
+#file = open("$path/2D.txt", "a")
+#    write(file, "Epoch, lrf,vali, train\n")
+#close(file)
+for epochs in [5, 9, 13, 17, 21]
     for lrf in [0.975 0.97 0.965 0.96 0.955 0.95 0.945]
-        test_algorithmus2(samp,epochs,lrf)
+        #test_algorithmus2(samp,epochs,lrf,runtime=1200)
+        test_batchwise(samp,epochs,lrf,batches=100)
     end
 end
 
 
 println("ende")
 
-bild= "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Pictures/dpg2.png"
-
+#bild= "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Pictures/dpg2.png"
+#makeBild(bild, path)
 
 
 function runTestFlow(x::Int64)

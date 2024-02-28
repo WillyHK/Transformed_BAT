@@ -5,29 +5,33 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-testname = "5dims_KLDiv"
+dims = 1
+Knots = 30
+testname = "$dims-D_$Knots-K"
 path = make_Path("$testname")
-dims = 5
-Knots = 20
 #distri = get_testcase(dims)
-distri = get_triplemode(dims)
+peaks=3
+distri = get_triplemode(dims, peaks=peaks)
 
 context = BATContext(ad = ADModule(:ForwardDiff))
-posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), distri, context)
+posterior, trafo = BAT.transform_and_unshape(DoNotTransform(), distri, context)#BAT.DoNotTransform(), distri, context)
 target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
 n_samp=500000
 
-iid, target_logpdf2 = get_iid([-3,0,3],dims,n_samp)
+iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
 samp=iid
+
+#tempering_training(iid,path,1,3, K=20,lr=5f-3,peaks=peaks)
+#ENDE
 
 #a,b,c=train(samp,target_logpdf2,loss=AdaptiveFlows.KLDiv_flow,epochs=10,batches=10,flow)
 #plot_loss_alldimension(path,c[2][1])
 
 if dims < 5
-    flow = build_flow(samp./(std(samp)/2), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
-    mcmc, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, 
-                                tuning=TransformedMCMCNoOpTuning(),use_mala=true); # Altenative: MCMCFlowTuning()
-    samp=mcmc
+    #flow = build_flow(samp./(std(samp)/2), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
+    #mcmc, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, 
+    #                            tuning=TransformedMCMCNoOpTuning(),use_mala=true); # Altenative: MCMCFlowTuning()
+    #samp=mcmc
     mcmc=test_MCMC(posterior,n_samp) # TODO Sampling ohne Ensemble funktioniert deutlich besser
     samp=mcmc[1:end,1:n_samp]
 end
@@ -71,7 +75,6 @@ function test_sampling()
 end
 
 function test_algorithmus(samples)
-    K=20
     nepochs=[3,5,10]
     n_minibatch=[1]
     batchsizes = [1000]
@@ -81,7 +84,7 @@ function test_algorithmus(samples)
             for nepoch in nepochs
                 for lrf in lern
                     #path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
-                    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=K,lrf=lrf);
+                    @time train_flow(samples,path, batches, nepoch,lr=0.01, batchsize=size,K=Knots,lrf=lrf);
                 end
             end
         end
@@ -96,7 +99,6 @@ end
 
 
 function test_training(samples)
-    K=20
     nepochs=[300]
     n_minibatch=[1]
     batchsizes = [size(samples,2)]
@@ -106,7 +108,7 @@ function test_training(samples)
             for nepoch in nepochs
                 for lrf in lern
                     path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
-                    @time train_flow2(samp,path, batches, nepoch,size,lr=0.01, K=K,lrf=lrf);
+                    @time train_flow2(samp,path, batches, nepoch,size,lr=0.01, K=Knots,lrf=lrf);
                 end
             end
         end
@@ -114,23 +116,21 @@ function test_training(samples)
 end
 
 function test_algorithmus2(samples,nepoch,lrf;runtime=600)
-    K=20
     batches=1
     size=1000
 
-   timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01,batchsize=size,K=K,lrf=lrf,runtime=runtime)#,loss_f=AdaptiveFlows.KLDiv_flow);
+   timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01,batchsize=size,K=Knots,lrf=lrf,runtime=runtime)#,loss_f=AdaptiveFlows.KLDiv_flow);
 end
 
 function test_batchwise(samples,nepoch,lrf;batches=10)
-    K=20
+    K=30
     minibatches=1
     size=1000
-    return batchwise_training(iid,samples,path, minibatches, nepoch,target_logpdf2, loss_f=AdaptiveFlows.KLDiv_flow,
+    return batchwise_training(iid,samples,path, minibatches, nepoch,target_logpdf, #loss_f=AdaptiveFlows.KLDiv_flow,
                               lr=0.01,batchsize=size,K=K,lrf=lrf,batches=batches);
 end
 
 function test_Knots(samples,nepoch,lrf)
-    K=20
     batches=1
     size=1000
    # path = make_Path("$testname/$size-$nepoch-$batches-$lrf")
@@ -138,7 +138,7 @@ function test_Knots(samples,nepoch,lrf)
                 loss=AdaptiveFlows.negll_flow, #loss_history = loss_hist,
                 logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf),
    nbatches=minibatches,nepochs=epochs, shuffle_samples=false);
-    @time timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01, batchsize=size,K=8,lrf=lrf);
+    @time timed_training(iid,samples,path, batches, nepoch,target_logpdf,lr=0.01, batchsize=size,K=Knots,lrf=lrf);
 end
 #test_training(samp)
 #test_algorithmus2(samp,parse(Int, ARGS[2]),parse(Float64, ARGS[1]))
@@ -149,10 +149,10 @@ end
 #file = open("$path/2D.txt", "a")
 #    write(file, "Epoch, lrf,vali, train\n")
 #close(file)
-for epochs in [1, 5, 9, 13, 17, 21]
-    for lrf in [0.99 0.97 0.96 0.96 0.95 0.94]
+for epochs in [3,5,7]
+    for lrf in [0.99 0.97 0.95]
         #test_algorithmus2(samp,epochs,lrf,runtime=1200)
-        test_batchwise(samp,epochs,lrf,batches=200)
+        test_batchwise(samp,epochs,lrf,batches=500)
     end
 end
 

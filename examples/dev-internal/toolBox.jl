@@ -219,7 +219,7 @@ function make_slide(pdfpath1,pdfpath2,pdfpath3; slidepath = "/ceph/groups/e4/use
 end
 
 #####################################################################################################
-# Create IID samples  (fomal modell = model = MixtureModel([MvNormal([0],I(1)),MvNormal([3],I(1))]))
+# Create IID samples  (fomal model = MixtureModel([MvNormal([0],I(1)),MvNormal([3],I(1))]))
 #####################################################################################################
 function get_iid(peakpositions,dim,n)
     peakss::Vector{MvNormal} = []

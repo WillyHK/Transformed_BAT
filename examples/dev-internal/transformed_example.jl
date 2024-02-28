@@ -64,7 +64,7 @@ function aufteilen(arr::Vector{T}, block_size::Int) where T
     return aufgeteilte_arrays
 end
 
-function test_MCMC(posterior,nsamp)
+function test_MCMC(posterior,nsamp; simulate_walker=true)
     x = @time BAT.bat_sample(posterior,
             TransformedMCMCSampling(
                 pre_transform=PriorToGaussian(), 
@@ -86,8 +86,43 @@ function test_MCMC(posterior,nsamp)
         end
     end
     # reorder samples to simulate an ensemble_sampling_process
-    samples = BAT2Matrix(vcat(aufteilen(samples2[1:nsamp],round(Int,nsamp/1000))...))
+    if simulate_walker
+        samples = BAT2Matrix(vcat(aufteilen(samples2[1:nsamp],round(Int,nsamp/1000))...))
+    else
+        samples = BAT2Matrix(samples2[1:nsamp])
+    end
     return samples
+end
+
+
+function tempering_gif(path; nsamp=100000, stepsize = 0.05, context = BATContext(ad = ADModule(:ForwardDiff)))
+    factor = 0.0
+    prior = BAT.NamedTupleDist(a = Uniform(-10,10))
+    likelihood = params -> begin      
+        return LogDVal(logpdf(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]), params[1]))
+    end
+    richtig, t = BAT.transform_and_unshape(BAT.DoNotTransform(), PosteriorDensity(likelihood, prior), context)
+    ani= Animation()
+
+    while (factor <= 1)
+        likelihood = params -> begin      
+            return LogDVal(factor*logpdf(MixtureModel(Normal, [(-3,1.0),(0,1.0),(3,1.0)],[1/3,1/3,1/3]), params[1]))
+        end
+        posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), PosteriorDensity(likelihood, prior), context)
+        samp = test_MCMC(posterior,nsamp)
+        plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
+        title!("$(size(samp,2)) Samples of [(flat prior) * ($factor * loglikelihood)]")
+        xlims!(-10,10)
+        ylims!(0,0.14)
+        x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
+        y(x) = densityof(richtig,[x])
+        y_values = y.(x_values)
+        factor2 = posterior.prior.bounds.vol.hi[1]-posterior.prior.bounds.vol.lo[1]
+        p=plot!(x_values, y_values*factor2,density=true, linewidth=3.2,legend =:topright, label ="truth", color="black")
+        frame(ani,p);
+        factor = round(factor+stepsize,digits=3)
+    end
+    gif(ani, "$path/tempering.gif", fps=2)
 end
 
 
@@ -358,6 +393,69 @@ function batchwise_training(iid::Matrix, samples::Matrix, path2::String, minibat
     close(file)
 
     plot(flat2batsamples(flow(samples)'), density=true,right_margin=9Plots.mm)
+    savefig("$path/result.pdf")
+    return flow, vali
+end
+
+
+function get_tempered_samples(tfactor; n_samp=1000, dims=3, peaks=3,context = BATContext(ad = ADModule(:ForwardDiff)))
+    posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), get_triplemode(dims,tfactor=tfactor,peaks=peaks), context)
+    target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
+    mcmc=test_MCMC(posterior,n_samp,simulate_walker=false)
+    samp=mcmc[1:end,1:n_samp]
+    return samp, target_logpdf
+end
+
+function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tempersize=0.05, batchsize=1000, eperplot=5, peaks=3,
+    lr=1f-2, K = 8, flow2 = build_flow(iid./(std(iid)/2), [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = K)]), 
+    lrf=1, vali = [], loss_f=AdaptiveFlows.negll_flow, batches=round(Int,(size(iid,2)/batchsize)))
+    path = make_Path("$batchsize-$epochs-$minibatches-$lrf",path2)
+    dims = size(iid,1)
+    for i in 1:dims
+        mkdir("$path/dim_$i")
+    end
+    meta = plot_metadaten(path, 0,minibatches, epochs, batchsize, lr, K, lrf)
+
+    # Initialiate flow:
+    samples, target_logpdf = get_tempered_samples(0,n_samp=10,peaks=peaks)
+    flow, opt, lh = train(samples, target_logpdf, K=K, epochs=0, flow=flow2)
+
+    vali = [[100, 100.0, 100]]
+    plot_flow_alldimension(path, flow, iid,0);
+
+    tf=0.0
+    i=0
+    while tf <= 1
+        println("tf = $tf, lr = $lr")
+
+        samples, target_logpdf = get_tempered_samples(tf,n_samp=batchsize,dims=size(iid,1),peaks=peaks)
+        flow, opt_state, loss_hist = train(samples, target_logpdf, flow=flow,
+                              batches=minibatches, epochs=epochs, opti=Adam(lr), shuffle=false, loss=loss_f)
+
+        push!(vali, [mean(loss_hist[2][d]) for d in 1:dims])
+
+        if (i%eperplot) == 0
+            plot_flow_alldimension(path, flow, iid,i);
+        end
+
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
+        tf = round(tf+tempersize,digits=3)
+        i +=1
+    end
+
+    plot_loss_alldimension(path,vali[2:end])
+    # Mittelwert letzen 10 % des Trainings berechnen zur Reduzierung von Schwankung bei zu hoher lr
+    midloss = mean(vali[end - ceil(Int, 0.1 * length(vali)) + 1:end])
+    #midloss2 = mean(loss[end - ceil(Int, 0.1 * length(vali)) + 1:end])
+    file = open("$path2/2D.txt", "a")
+        write(file, "$epochs, $lrf, $(join(string.(midloss), ", ")) \n")# $midloss2\n")
+    close(file)
+
+    plot(flat2batsamples(flow(iid)'), density=true,right_margin=9Plots.mm)
     savefig("$path/result.pdf")
     return flow, vali
 end

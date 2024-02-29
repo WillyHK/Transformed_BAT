@@ -130,7 +130,7 @@ end
 # Ensemblesampling
 ####################################################################
 function EnsembleSampling(posterior, f;use_mala=true, tuning=MCMCFlowTuning(), 
-                            tau=0.01, nchains=1, nsteps=100,nwalker=100, pre_trafo=DoNotTransform())
+                            tau=0.5, nchains=1, nsteps=100,nwalker=100, pre_trafo=DoNotTransform())
     context = BATContext(ad = ADModule(:ForwardDiff))
     y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(

@@ -103,6 +103,7 @@ function TransformedMCMCEnsembleIterator(
     )
 end
 
+# This function is used for adaptive Transformations which arent flow, not sure if it is needed for Ensembles
 function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
 )
@@ -133,6 +134,7 @@ function propose_mcmc(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
+# Used to sample directly from flow
 function propose_random_normal(dim::Int, n::Int,rng)
     return rand(rng,MvNormal(zeros(dim),ones(dim)),n)
 end
@@ -177,13 +179,8 @@ function propose_state(
     end
 
     x_proposed, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
-    logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
-    
+    logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)    
     logd_z_proposed = vec(logd_x_proposed + ladj')
-    #logd_z_proposed2 = log_ν.(z_proposed)
-    #global g_state = (logd_z_proposed, logd_z_proposed2, z_proposed, x_proposed, f)
-
-    #x_proposed = f(z_proposed) #_inv
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))
@@ -191,8 +188,6 @@ function propose_state(
             error("Fucking NaN!")
         end
     end
-
-    #logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
 
     p_accept = clamp.(exp.(logd_x_proposed-logd_x), 0, 1)
 
@@ -224,12 +219,11 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
     rate = sum(accepted)/length(p_accept)
-    #iter.tau = iter.tau*2*rate
-    if rate > 0.57
-        iter.tau = iter.tau*1.1
-    else
-        iter.tau = iter.tau*0.9
-    end
+    #if rate > 0.57
+    #    iter.tau = iter.tau*1.05
+    #else
+    #    iter.tau = iter.tau*0.95
+    #end
 
     x_new, logd_x_new = copy(state_x.v), copy(state_x.logd)
     z_new, logd_z_new = copy(state_z.v), copy(state_z.logd)

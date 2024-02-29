@@ -31,8 +31,8 @@ plot_flow(flow,iid)
 savefig("$path/flow_before.png")
 plot_spline(flow,iid)
 savefig("$path/spline_before.png")
-result, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=100, pre_trafo=PriorToGaussian(),
-                            tuning=TransformedMCMCNoOpTuning(), use_mala=false); # Altenative:  MCMCFlowTuning(),
+@time result, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, pre_trafo=PriorToGaussian(),
+                            tuning=MCMCFlowTuning(), use_mala=false); # Altenative: TransformedMCMCNoOpTuning() ,
 mcmc = Matrix(flatview(result.v))
 plot_flow(flow,mcmc)
 savefig("$path/flow_after_mcmc.png")
@@ -44,19 +44,18 @@ savefig("$path/spline_after.png")
 mcmc = flatview(inverse(trafo).(result).v)
 samp = BAT2Matrix(Vector(mcmc.a))
 
-#mcmc=test_MCMC(posterior,n_samp) # TODO Sampling ohne Ensemble funktioniert deutlich besser
-#samp=mcmc[1:end,1:n_samp]
-
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
-title!("$(size(samp)), no Ensembles")
+title!("$(size(samp))")
 if (dims == 1)
     x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
     y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), distri, context)[1],[x])
     y_values = y.(x_values)
     factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
-    plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =:topright, label ="truth", color="black")
+    plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =:bottom, label ="truth", color="black")
 end
 savefig("$path/traindata_flow_nomala.pdf")
+
+
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
 ENDE
 target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)

@@ -107,7 +107,6 @@ function propose_mcmc(
     iter::TransformedMCMCEnsembleIterator{<:Any, <:Any, <:Any, <:TransformedMHProposal}
 )
     @unpack μ, f, proposal, states_x, state_z, stepno, context = iter
-
     rng = get_rng(context)
     states_x = last(states_x)
     x, logd_x = states_x.v, states_x.logd
@@ -117,17 +116,10 @@ function propose_mcmc(
 
     z_proposed = similar(z)
     for i in 1:length(z)
-        z_proposed[i] = z[i] + rand(MvNormal(zeros(length(z[i])),ones(length(z[i])))) #TODO: check if proposal is symmetric? otherwise need additional factor?
+        z_proposed[i] = z[i] + rand(rng,MvNormal(zeros(length(z[i])),ones(length(z[i])))) #TODO: check if proposal is symmetric? otherwise need additional factor?
     end  
-    #z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?
-    global g_state = (z,z_proposed)
-    #sfs
-        
+    #z_proposed = z + rand(rng, proposal.proposal_dist, (n,m)) #TODO: check if proposal is symmetric? otherwise need additional factor?       
     x_proposed =z_proposed#, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
-
-    #z_proposed = nestedview(z_proposed)
-    #x_proposed = nestedview(x_proposed)
-
     logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
     logd_z_proposed = logd_x_proposed #+ vec(ladj)
 
@@ -141,16 +133,16 @@ function propose_mcmc(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
-function propose_random_normal(dim::Int, n::Int)
-    return rand(MvNormal(zeros(dim),ones(dim)),n)
+function propose_random_normal(dim::Int, n::Int,rng)
+    return rand(rng,MvNormal(zeros(dim),ones(dim)),n)
 end
 
-function propose_mcmc(z, dim::Int)
-    return z + rand(MvNormal(zeros(dim),ones(dim)))
+function propose_mcmc(z, dim::Int, rng)
+    return z + rand(rng, MvNormal(zeros(dim),ones(dim)))
 end
 
-function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector)
-    return z + sqrt(2*tau) * rand(MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
+function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector, rng)
+    return z + sqrt(2*tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
 end
 
 function propose_state(
@@ -167,8 +159,8 @@ function propose_state(
     dim=length(z[1])
     z_proposed = similar(z)
 
-    flow_mask = (rand(length(z)) .< flow_rate)
-    z_proposed[flow_mask] = nestedview(propose_random_normal(dim,sum(flow_mask)))
+    flow_mask = (rand(rng,length(z)) .< flow_rate)
+    z_proposed[flow_mask] = nestedview(propose_random_normal(dim,sum(flow_mask),rng))
 
     ν = Transformed(μ, f, TDLADJCorr())
     log_ν = BAT.checked_logdensityof(ν)
@@ -178,15 +170,20 @@ function propose_state(
         grads = ∇log_ν.(z)
 
         i = .!flow_mask
-        z_proposed[i] = propose_mala.(z[i], dim, iter.tau, grads[i])
+        z_proposed[i] = propose_mala.(z[i], dim, iter.tau, grads[i],rng)
     else
         i = .!flow_mask
-        z_proposed[i] = propose_mcmc.(z[i], dim)
+        z_proposed[i] = propose_mcmc.(z[i], dim, rng)
     end
 
-    logd_z_proposed = log_ν.(z_proposed)
+    x_proposed, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
+    logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
+    
+    logd_z_proposed = vec(logd_x_proposed + ladj')
+    #logd_z_proposed2 = log_ν.(z_proposed)
+    #global g_state = (logd_z_proposed, logd_z_proposed2, z_proposed, x_proposed, f)
 
-    x_proposed = f(z_proposed) #_inv
+    #x_proposed = f(z_proposed) #_inv
 
     for i in 1:length(x_proposed)
         if any(isnan.(x_proposed[i]))
@@ -195,7 +192,7 @@ function propose_state(
         end
     end
 
-    logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
+    #logd_x_proposed = BAT.checked_logdensityof(μ).(x_proposed)
 
     p_accept = clamp.(exp.(logd_x_proposed-logd_x), 0, 1)
 
@@ -253,8 +250,8 @@ function transformed_mcmc_step!!(
         open("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/src/data.txt", "a") do file
             write(file, "$loss")
         end
-        println(tuner.optimizer.eta)
-        println(tuner_new.optimizer.eta)
+        #println(tuner.optimizer.eta)
+        #println(tuner_new.optimizer.eta)
     else
         global g_state = (tuner, f, p_accept, z_proposed, state_z.v, stepno, context)
         tuner_new, f = tune_mcmc_transform!!(tuner, f, p_accept, z_proposed, state_z.v, stepno, context)

@@ -12,7 +12,7 @@ end
 ##################################################################################
 # Batsamples to Matrix
 ##################################################################################
-function BAT2Matrix(x::Vector)::Matrix{Float64}
+function BAT2Matrix(x)::Matrix{Float64}
     zeilen = length(x[1])
     spalten = length(x)
     matrix::Matrix{Float64} = zeros(zeilen,spalten)
@@ -111,7 +111,7 @@ end
 
 function get_triplemode(dim = 3; tfactor=1.0, peaks=3)
     label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
-    value = [ Uniform(-4*peaks,4*peaks) for i in 1:dim]
+    value = [ Uniform(-peaks-4,peaks+4) for i in 1:dim]
     prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
 
     likelihood = params -> begin      

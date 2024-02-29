@@ -6,16 +6,13 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 gr()  
 
 dims = 1
-Knots = 30
-testname = "$dims-D_$Knots-K"
+Knots = 20
+testname = "$dims-D_$Knots-K_PTG_mala"
 path = make_Path("$testname")
-#distri = get_testcase(dims)
 peaks=3
 distri = get_triplemode(dims, peaks=peaks)
-
+pre_trafo = BAT.DoNotTransform()
 context = BATContext(ad = ADModule(:ForwardDiff))
-posterior, trafo = BAT.transform_and_unshape(DoNotTransform(), distri, context)#BAT.DoNotTransform(), distri, context)
-target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
 n_samp=500000
 
 iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
@@ -23,30 +20,71 @@ samp=iid
 
 #tempering_training(iid,path,1,3, K=20,lr=5f-3,peaks=peaks)
 #ENDE
+##########################################################
+# Work in Prior2Gaussian Room
+##########################################################
+pre_trafo = BAT.PriorToGaussian()
+posterior, trafo = BAT.transform_and_unshape(pre_trafo, distri, context)
 
-#a,b,c=train(samp,target_logpdf2,loss=AdaptiveFlows.KLDiv_flow,epochs=10,batches=10,flow)
-#plot_loss_alldimension(path,c[2][1])
+flow = build_flow(rand(MvNormal(zeros(1),I(1)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
+plot_flow(flow,iid)
+savefig("$path/flow_before.png")
+plot_spline(flow,iid)
+savefig("$path/spline_before.png")
+result, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=100, pre_trafo=PriorToGaussian(),
+                            tuning=TransformedMCMCNoOpTuning(), use_mala=false); # Altenative:  MCMCFlowTuning(),
+mcmc = Matrix(flatview(result.v))
+plot_flow(flow,mcmc)
+savefig("$path/flow_after_mcmc.png")
+plot_spline(flow,iid)
+savefig("$path/spline_after.png")
+##########################################################
+# Leave Prior2Gaussian Room
+##########################################################
+mcmc = flatview(inverse(trafo).(result).v)
+samp = BAT2Matrix(Vector(mcmc.a))
 
-if dims < 5
-    #flow = build_flow(samp./(std(samp)/2), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
-    #mcmc, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, 
-    #                            tuning=TransformedMCMCNoOpTuning(),use_mala=true); # Altenative: MCMCFlowTuning()
-    #samp=mcmc
-    mcmc=test_MCMC(posterior,n_samp) # TODO Sampling ohne Ensemble funktioniert deutlich besser
-    samp=mcmc[1:end,1:n_samp]
-end
+#mcmc=test_MCMC(posterior,n_samp) # TODO Sampling ohne Ensemble funktioniert deutlich besser
+#samp=mcmc[1:end,1:n_samp]
 
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
 title!("$(size(samp)), no Ensembles")
 if (dims == 1)
     x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
-    y(x) = densityof(posterior,[x])
+    y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), distri, context)[1],[x])
     y_values = y.(x_values)
-    factor = posterior.prior.bounds.vol.hi[1]-posterior.prior.bounds.vol.lo[1]
+    factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
     plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =:topright, label ="truth", color="black")
 end
-savefig("$path/traindata.pdf")
+savefig("$path/traindata_flow_nomala.pdf")
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
+ENDE
+target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
+
+test=[]
+nwalker=100
+while (length(test)<nwalker)
+    t=BAT.mcmc_init!(BAT.TransformedMCMCSampling(),
+        posterior, 100,
+        BAT.TransformedMCMCChainPoolInit(),
+        BAT.TransformedMCMCNoOpTuning(), # TODO: part of algorithm? # MCMCTuner
+        true,
+        x->x,
+        context)[1]
+    chains = getproperty.(t, :samples)
+    for c in chains
+        push!(test,c.v[end])
+    end
+end
+#samp = Matrix{Float64}(test[1:nwalker]')
+
+TransformedMCMCEnsembleIterator(
+    BAT.TransformedMCMCSampling(),
+    posterior,
+    Int32(1),
+    test[1:nwalker],
+    context,
+)
 
 function test_sampling()
     iters = 5

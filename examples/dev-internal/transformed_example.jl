@@ -130,11 +130,11 @@ end
 # Ensemblesampling
 ####################################################################
 function EnsembleSampling(posterior, f;use_mala=true, tuning=MCMCFlowTuning(), 
-                            tau=0.01, nchains=1, nsteps=100,nwalker=100)
+                            tau=0.01, nchains=1, nsteps=100,nwalker=100, pre_trafo=DoNotTransform())
     context = BATContext(ad = ADModule(:ForwardDiff))
     y = @time BAT.bat_sample_impl(posterior, 
         TransformedMCMCSampling(
-            pre_transform=PriorToGaussian(), 
+            pre_transform=pre_trafo, 
             init=TransformedMCMCEnsemblePoolInit(), #@TO-Do:  nsteps angeben, faktor wie viele
             tuning_alg=tuning, tau=tau,
             adaptive_transform=f, use_mala=use_mala,
@@ -145,7 +145,7 @@ function EnsembleSampling(posterior, f;use_mala=true, tuning=MCMCFlowTuning(),
     println(sum(x.weight))
     print("Acceptance rate: ")
     println(length(unique(x.v))/length(x.v))
-    return flatview(x.v), y.flow
+    return x, y.flow
 end
 
 

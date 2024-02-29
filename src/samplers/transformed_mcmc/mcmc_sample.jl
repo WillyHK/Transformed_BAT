@@ -60,6 +60,7 @@ function bat_sample_impl(
 )
     if(algorithm.adaptive_transform isa CustomTransform)
         println("Using ensembles to sample with flows!")
+        println(algorithm.adaptive_transform)
         return bat_sample_impl_ensemble(target,algorithm,context)
     end
 
@@ -254,6 +255,7 @@ function _run_sample_impl_ensemble(
     progress_meter = ProgressMeter.Progress(algorithm.nchains*algorithm.nsteps, desc=description, barlen=80-length(description), dt=0.1)
 
     # tuners are set to 'NoOpTuner' for the sampling phase
+    println("Start Sampling phase")
     for i in 1:algorithm.nsteps
         transformed_mcmc_iterate!(
             ensembles,

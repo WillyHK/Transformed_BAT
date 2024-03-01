@@ -5,9 +5,9 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-dims = 1
+dims = 8
 Knots = 20
-testname = "$dims-D_$Knots-K_PTG_mala"
+testname = "$dims-D_$Knots-Multitdim"
 path = make_Path("$testname")
 peaks=3
 distri = get_triplemode(dims, peaks=peaks)
@@ -18,31 +18,9 @@ n_samp=500000
 iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
 samp=iid
 
-#tempering_training(iid,path,1,3, K=20,lr=5f-3,peaks=peaks)
-#ENDE
-##########################################################
-# Work in Prior2Gaussian Room
-##########################################################
-pre_trafo = BAT.PriorToGaussian()
-posterior, trafo = BAT.transform_and_unshape(pre_trafo, distri, context)
+FlowSampling(path, distri)
+ENDE
 
-flow = build_flow(rand(MvNormal(zeros(1),I(1)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
-plot_flow(flow,iid)
-savefig("$path/flow_before.png")
-plot_spline(flow,iid)
-savefig("$path/spline_before.png")
-@time result, flow=EnsembleSampling(posterior,BAT.CustomTransform(flow),nsteps=Int(n_samp/1000)+1,nwalker=1000, pre_trafo=PriorToGaussian(),
-                            tuning=MCMCFlowTuning(), use_mala=false); # Altenative: TransformedMCMCNoOpTuning() ,
-mcmc = Matrix(flatview(result.v))
-plot_flow(flow,mcmc)
-savefig("$path/flow_after_mcmc.png")
-plot_spline(flow,iid)
-savefig("$path/spline_after.png")
-##########################################################
-# Leave Prior2Gaussian Room
-##########################################################
-mcmc = flatview(inverse(trafo).(result).v)
-samp = BAT2Matrix(Vector(mcmc.a))
 
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
 title!("$(size(samp))")
@@ -54,8 +32,6 @@ if (dims == 1)
     plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =:bottom, label ="truth", color="black")
 end
 savefig("$path/traindata_flow_nomala.pdf")
-
-
 #make_slide("$path/traindata.pdf",title="Trainingsdata $n_samp iid samp, lr konst")
 ENDE
 target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)

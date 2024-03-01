@@ -126,26 +126,57 @@ function tempering_gif(path; nsamp=100000, stepsize = 0.05, context = BATContext
 end
 
 
-####################################################################
-# Ensemblesampling
-####################################################################
-function EnsembleSampling(posterior, f;use_mala=true, tuning=MCMCFlowTuning(), 
-                            tau=0.5, nchains=1, nsteps=100,nwalker=100, pre_trafo=DoNotTransform())
-    context = BATContext(ad = ADModule(:ForwardDiff))
-    y = @time BAT.bat_sample_impl(posterior, 
-        TransformedMCMCSampling(
-            pre_transform=pre_trafo, 
-            init=TransformedMCMCEnsemblePoolInit(), #@TO-Do:  nsteps angeben, faktor wie viele
-            tuning_alg=tuning, tau=tau,
-            adaptive_transform=f, use_mala=use_mala,
-            nchains=nchains, nsteps=nsteps,nwalker=nwalker),
-            context);
-    x = y.result
-    print("Number of samples: ")
-    println(sum(x.weight))
+##############################################################################
+# This is the final version of sampling with a combinations of Flows and BAT
+##############################################################################
+function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape), Knots=20, context =BATContext(ad = ADModule(:ForwardDiff)), 
+                    n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, 
+                    flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)]),
+                    marginaldistribution = get_triplemode(1))
+
+    x = @time BAT.bat_sample_impl(posterior, 
+                                TransformedMCMCSampling(pre_transform=BAT.PriorToGaussian(), 
+                                                        init=TransformedMCMCEnsemblePoolInit(),
+                                                        tuning_alg=tuner, tau=tau, nsteps=Int(n_samp/walker),
+                                                        adaptive_transform=BAT.CustomTransform(flow), use_mala=use_mala,
+                                                        nchains=nchains, nwalker=walker),
+                                                        context);
+    samples = x.result.v
     print("Acceptance rate: ")
-    println(length(unique(x.v))/length(x.v))
-    return x, y.flow
+    println(length(unique(samples))/length(samples))
+
+    samples_trafo = x.result_trafo.v
+    plot_flow_alldimension(path, x.flow, BAT2Matrix(samples_trafo),Knots); # Flow was trained inside the PriorToGaussian()-Room
+    plot_samples(path, BAT2Matrix(samples), marginaldistribution)
+    return x
+end
+
+
+##############################################################################
+# In one dimension is it eZ to investigate the Spline Function
+##############################################################################
+function SplineWatch_FlowSampling(path, posterior; dims = 1, Knots=20, context =BATContext(ad = ADModule(:ForwardDiff)), 
+                        n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, 
+                        flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)]),
+                        marginaldistribution = get_triplemode(1))
+    if (length(posterior.likelihood.shape) != dims)
+        println("Spline analysis at the moment only for 1D Cases")
+        return FlowSampling(path, posterior; dims = length(posterior.likelihood.shape), Knots=Knots, context = context, 
+                            n_samp= n_samp, tuner =tuner , use_mala=use_mala, walker=walker, tau=tau, nchains=nchains, 
+                            marginaldistribution = marginaldistribution)
+    end
+
+    flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
+    dummy = rand(MvNormal(zeros(dims),ones(dims)),10) # dummy-samples are used to evaluate the NN to get the spline function
+    plot_spline(flow,dummy)
+    savefig("$path/spline_before.png")
+
+    x = FlowSampling(path, posterior, dims = 1, flow=flow, context = context, 
+                            n_samp= n_samp, tuner =tuner , use_mala=use_mala, walker=walker, tau=tau, nchains=nchains, 
+                            marginaldistribution = marginaldistribution)
+
+    plot_spline(x.flow,dummy)
+    savefig("$path/spline_after.png")
 end
 
 

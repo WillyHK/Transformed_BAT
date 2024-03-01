@@ -105,6 +105,22 @@ function plot_loss_alldimension(path,loss)
     return p
 end
 
+function plot_samples(path, samp::Matrix, marginaldistribution)
+    dims=size(samp,1)
+    p=plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
+    title!("$(size(samp))")
+    savefig("$path/sampling_result.pdf")
+    for i in 1:dims
+        x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
+        y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), marginaldistribution, context)[1],[x])
+        y_values = y.(x_values)
+        factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
+        plot!(p[(i-1)*dims + i],x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black")
+        savefig(plot(p[(i-1)*dims + i]),"$path/sampling_result_$i.pdf")
+    end
+    savefig(p,"$path/sampling_result.pdf")
+end
+
 function plot_metadaten(path, samplesize,minibatches, epochs, batchsize, lr, K, lrf)
     x=plot(size=(800, 600), legend=false, ticks=false, border=false, axis=false);
     annotate!(0.5,1-0.1,"Pfad: $(path[1:49])");
@@ -133,6 +149,10 @@ end
 
 function plot_flow_alldimension(path, flow,samples,epoch)
     for i in 1:size(samples,1)
+        if !(isdir("$path/dim_$i"))
+            mkpath("$path/dim_$i")
+        end
+
         plot_flow(flow,samples, dimension = i)
         savefig("$path/dim_$i/$(nummer(epoch)).pdf");
     end

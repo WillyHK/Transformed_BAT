@@ -107,17 +107,19 @@ end
 
 function plot_samples(path, samp::Matrix, marginaldistribution)
     dims=size(samp,1)
+    x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
+    y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), marginaldistribution, context)[1],[x])
+    y_values = y.(x_values)
+    factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
+    for i in 1:dims
+        plot(flat2batsamples(samp[1,:]), density=true,right_margin=9Plots.mm)
+        title!("$(size(samp)), Dimension $i")
+        plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black")
+        savefig("$path/sampling_result_$i.pdf")
+    end
     p=plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
     title!("$(size(samp))")
     savefig("$path/sampling_result.pdf")
-    for i in 1:dims
-        x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
-        y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), marginaldistribution, context)[1],[x])
-        y_values = y.(x_values)
-        factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
-        plot!(p[(i-1)*dims + i],x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black")
-        savefig(plot(p[(i-1)*dims + i]),"$path/sampling_result_$i.pdf")
-    end
     savefig(p,"$path/sampling_result.pdf")
 end
 

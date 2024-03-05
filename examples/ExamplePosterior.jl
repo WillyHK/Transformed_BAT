@@ -219,7 +219,7 @@ function get_multimodal(dim=3)
     likelihood = params -> begin      
         r=0
         for i in 1:dim
-            r+= logpdf(MixtureModel(Normal, [(-16,1.0),(-8,1.0),(0,1.0),(8,1.0),(16,1.0)],[0.35,0.3,0.2,0.1,0.05]), params[i])
+            r+= logpdf(MixtureModel(Normal, [(-20,1.0),(-10,1.0),(0,1.0),(10,1.0),(20,1.0)],[0.35,0.3,0.2,0.1,0.05]), params[i])
         end
         return LogDVal(r)
     end

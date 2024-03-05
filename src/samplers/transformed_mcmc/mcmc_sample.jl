@@ -60,7 +60,6 @@ function bat_sample_impl(
 )
     if(algorithm.adaptive_transform isa CustomTransform)
         println("Using ensembles to sample with flows!")
-        println(algorithm.adaptive_transform)
         return bat_sample_impl_ensemble(target,algorithm,context)
     end
 

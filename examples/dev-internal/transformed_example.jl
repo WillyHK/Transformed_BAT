@@ -65,24 +65,27 @@ function aufteilen(arr::Vector{T}, block_size::Int) where T
 end
 
 function test_MCMC(posterior,nsamp; simulate_walker=true)
-    x = @time BAT.bat_sample(posterior,
-            TransformedMCMCSampling(
+    samples2 = []
+    while (length(samples2) < nsamp)
+        x = @time BAT.bat_sample(posterior,
+                TransformedMCMCSampling(
                 pre_transform=PriorToGaussian(), 
                 init=TransformedMCMCChainPoolInit(),
-                tuning_alg=TransformedMCMCNoOpTuning(), 
+                burnin=TransformedMCMCMultiCycleBurnin(nsteps_per_cycle=100000, max_ncycles=100),     
+                tuning_alg=TransformedMCMCNoOpTuning(), strict=false, 
                 nchains=4, nsteps=354),
-            context).result; # @TODO: Why are there so many samples?
-    #plot(x,bins=200)#,xlims=xl)
-    #savefig("$path/truth.pdf")
-    print("Number of samples: ")
-    println(sum(x.weight))
-    print("Acceptance rate: ")
-    println(length(x.v)/sum(x.weight))
+                context).result; # @TODO: Why are there so many samples?
+        #plot(x,bins=200)#,xlims=xl)
+        #savefig("$path/truth.pdf")
+        print("Number of samples: ")
+        println(sum(x.weight))
+        print("Acceptance rate: ")
+        println(length(x.v)/sum(x.weight))
     
-    samples2 = []
-    for i in 1:length(x.v)
-        for j in 1:x.weight[i]
-            push!(samples2,x.v[i])
+        for i in 1:length(x.v)
+            for j in 1:x.weight[i]
+                push!(samples2,x.v[i])
+            end
         end
     end
     # reorder samples to simulate an ensemble_sampling_process
@@ -169,14 +172,14 @@ function SplineWatch_FlowSampling(path, posterior; dims = 1, Knots=20, context =
     flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)])
     dummy = rand(MvNormal(zeros(dims),ones(dims)),10) # dummy-samples are used to evaluate the NN to get the spline function
     plot_spline(flow,dummy)
-    savefig("$path/spline_before.png")
+    savefig("$path/spline_before_$Knots.jpg")
 
-    x = FlowSampling(path, posterior, dims = 1, flow=flow, context = context, 
+    x = FlowSampling(path, posterior, dims = 1, flow=flow, context = context, Knots=Knots,
                             n_samp= n_samp, tuner =tuner , use_mala=use_mala, walker=walker, tau=tau, nchains=nchains, 
                             marginaldistribution = marginaldistribution)
 
     plot_spline(x.flow,dummy)
-    savefig("$path/spline_after.png")
+    savefig("$path/spline_after_$Knots.jpg")
 end
 
 

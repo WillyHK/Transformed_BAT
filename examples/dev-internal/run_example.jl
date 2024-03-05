@@ -5,22 +5,46 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-dims = 8
+dims = 7
 Knots = 20
-testname = "$dims-D_$Knots-Multitdim"
+n_samp=50*(1000^2)
+testname = "$dims-D_$Knots-K_$n_samp-SamplesMultimodal"
 path = make_Path("$testname")
 peaks=3
-distri = get_triplemode(dims, peaks=peaks)
-pre_trafo = BAT.DoNotTransform()
+#distri = get_triplemode(dims, peaks=peaks)
+distri = get_multimodal(dims)
+marginal = get_multimodal(1)
+#pre_trafo = BAT.DoNotTransform()
 context = BATContext(ad = ADModule(:ForwardDiff))
-n_samp=500000
 
-iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
-samp=iid
+#iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
+#samp=iid
 
-FlowSampling(path, distri)
+function iterate_FlowSampling(sampPerRun=100000)
+    x=FlowSampling(path, distri,use_mala=false,n_samp=sampPerRun,Knots=Knots)
+    samp = BAT2Matrix(x.result.v)
+    flow = x.flow
+    i=0
+    while (size(samp,2)<n_samp) # TODO hier wird leider noch jedes mal die lr zurückgesetzt #evtl Plots einfach in BAT.jl machen?
+        path2=make_Path("$testname/$i")
+        x=FlowSampling(path2, distri,use_mala=false,n_samp=sampPerRun,flow=flow)
+        samp = hcat(samp,BAT2Matrix(x.result.v))
+        plot_samples(path2, samp,get_triplemode(1))
+        flow = x.flow
+        i=i+1
+    end
+end
+
+x=FlowSampling(path, distri,use_mala=false,n_samp=n_samp,Knots=Knots,marginaldistribution=marginal)
+mcmc=test_MCMC(distri,n_samp, simulate_walker=false)
+plot_samples(make_Path("$testname/mcmc"), mcmc,marginal)
+#iterate_FlowSampling()
+
 ENDE
-
+#SplineWatch_FlowSampling(path, distri,Knots=5,n_samp=200000)
+#SplineWatch_FlowSampling(path, distri,Knots=10,n_samp=200000)
+#SplineWatch_FlowSampling(path, distri,Knots=20,n_samp=200000)
+#SplineWatch_FlowSampling(path, distri,Knots=40,n_samp=200000)
 
 plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
 title!("$(size(samp))")
@@ -52,14 +76,6 @@ while (length(test)<nwalker)
     end
 end
 #samp = Matrix{Float64}(test[1:nwalker]')
-
-TransformedMCMCEnsembleIterator(
-    BAT.TransformedMCMCSampling(),
-    posterior,
-    Int32(1),
-    test[1:nwalker],
-    context,
-)
 
 function test_sampling()
     iters = 5
@@ -172,7 +188,7 @@ end
 
 println("ende")
 
-#bild= "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Pictures/dpg2.png"
+#bild= "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/wweber/Pictures/dpg2.jpg"
 #makeBild(bild, path)
 
 

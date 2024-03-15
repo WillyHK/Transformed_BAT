@@ -5,12 +5,16 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
+include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/dev-internal/thesis.jl")
+
+ENDE 
+
 dims = 1
 Knots = 20
 walker=1000
 inburn=100
-n_samp=2*10^6
-testname = "test1d_$dims-Dimensionen-NoOPTuning_BachelorDistribution_$Knots-K_$(n_samp/(1000)^2)_M_samples+"
+n_samp=3*10^3
+testname = "rtest1d_$dims-Dimensionen-NoOPTuning_BachelorDistribution_$Knots-K_$(n_samp/(1000)^2)_M_samples+"
 println("################################################################")
 println("# $testname")
 println("################################################################")

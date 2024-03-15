@@ -438,7 +438,7 @@ function batchwise_training(iid::Matrix, samples::Matrix, path2::String, minibat
 end
 
 
-function get_tempered_samples(posterior, tfactor; n_samp=1000, dims=3, context = BATContext(ad = ADModule(:ForwardDiff)))
+function get_tempered_samples(posterior, tfactor; n_samp=1000, context = BATContext(ad = ADModule(:ForwardDiff)))
     posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), posterior, context)
     target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
     mcmc=test_MCMC(posterior,n_samp,simulate_walker=false)
@@ -590,6 +590,51 @@ function tempering_test(iid::Matrix, path2::String, minibatches, epochs; tempers
     savefig("$path/result.pdf")
     return flow, vali
 end
+
+
+function tempertrain(model,iid::Matrix, path2::String, minibatches, epochs; tempersize=0.25, batchsize=1000, eperplot=2, peaks=3,
+                    lr=0.05, K = 20, flow2 = build_flow(iid./2, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = K)]), 
+                    lrf=1, vali = [], loss_f=AdaptiveFlows.negll_flow, batches=round(Int,(size(iid,2)/batchsize)))
+    path = path2
+    dims = size(iid,1)
+
+    meta = plot_metadaten(path, 0,minibatches, epochs, batchsize, lr, K, lrf)
+    
+    # init Posterior
+    tf=0.0
+    posterior= get_posterior(model,dims,tf=tf)
+
+    # Initialiate flow:
+    samples, target_logpdf = get_tempered_samples(posterior, 0.1,n_samp=10)
+    flow, opt, lh = train(iid, target_logpdf, K=K, epochs=0, flow=flow2)
+
+    vali = [[100, 100.0, 100]]
+
+    i=0
+    while tf <= 1
+        println("tf = $tf, lr = $lr")
+        get_posterior(model,dims,tf=tf)
+
+        samples, target_logpdf = get_tempered_samples(posterior, 0.1,n_samp=10^3)
+
+        flow, opt_state, loss_hist = train(samples, target_logpdf, flow=flow,
+                              batches=minibatches, epochs=epochs, opti=Adam(lr), shuffle=true, loss=loss_f)
+
+        push!(vali, [mean(loss_hist[2][d]) for d in 1:dims])
+
+
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
+
+        tf = round(tf+tempersize,digits=3)
+        i +=1
+    end
+    return flow, vali
+end
+
 #####################################################################
 # Use Loss functions of Adaptive Flows for validation on testsamples
 #####################################################################

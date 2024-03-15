@@ -244,3 +244,29 @@ function get_bachelor(dim=3;tf=1.0)
     posterior = PosteriorDensity(likelihood, prior);
     return posterior
 end
+
+function get_posterior(model,dim;tf=1.0)
+    border=round(Int,maximum(map(abs, rand(model,10^5))))+1
+
+    label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
+    value = [ Uniform(-border,border) for i in 1:dim]
+    prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    likelihood = params -> begin      
+        r=0
+        for i in 1:dim
+            r+= logpdf(model, params[i])
+        end
+        return LogDVal(tf*r)
+    end
+    return PosteriorDensity(likelihood, prior);
+end
+
+
+function get_prior(model,dim)
+    label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
+    value = [ model for i in 1:dim]
+    prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    return prior
+end

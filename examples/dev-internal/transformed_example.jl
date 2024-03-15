@@ -71,9 +71,9 @@ function test_MCMC(posterior,nsamp; simulate_walker=true)
                 TransformedMCMCSampling(
                 pre_transform=PriorToGaussian(), 
                 init=TransformedMCMCChainPoolInit(),
-                burnin=TransformedMCMCMultiCycleBurnin(nsteps_per_cycle=100000, max_ncycles=100),     
+                burnin=TransformedMCMCMultiCycleBurnin(max_ncycles=100),     
                 tuning_alg=TransformedMCMCNoOpTuning(), strict=false, 
-                nchains=4, nsteps=354),
+                nchains=4, nsteps=500),#354),
                 context).result; # @TODO: Why are there so many samples?
         #plot(x,bins=200)#,xlims=xl)
         #savefig("$path/truth.pdf")
@@ -135,16 +135,22 @@ end
 function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape), Knots=20, context =BATContext(ad = ADModule(:ForwardDiff)), 
                     n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, 
                     flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)]),
-                    marginaldistribution = get_triplemode(1))
+                    marginaldistribution = get_triplemode(1), identystart=false, burnin=100000, pretrafo=BAT.PriorToGaussian())
 
+    if identystart
+        #target_logpdf = x -> logpdf(get_normal(dims)).(x)
+        flow = AdaptiveFlows.optimize_flow(rand(MvNormal(zeros(dims),ones(dims)),10^5), flow, Adam(5f-3) , loss=AdaptiveFlows.negll_flow, nbatches = 4, 
+                                                        nepochs = 100, shuffle_samples = true, logpdf = (AdaptiveFlows.std_normal_logpdf,AdaptiveFlows.std_normal_logpdf)).result
+    end
+    
     x = @time BAT.bat_sample_impl(posterior, 
-                                TransformedMCMCSampling(pre_transform=BAT.PriorToGaussian(), 
+                                TransformedMCMCSampling(pre_transform=pretrafo, 
                                                         init=TransformedMCMCEnsemblePoolInit(),
-                                                        tuning_alg=tuner, tau=tau, nsteps=Int(n_samp/walker),
+                                                        tuning_alg=tuner, tau=tau, nsteps=Int(n_samp/walker)+burnin-1,
                                                         adaptive_transform=BAT.CustomTransform(flow), use_mala=use_mala,
                                                         nchains=nchains, nwalker=walker),
                                                         context);
-    samples = x.result.v
+    samples = x.result.v[burnin*walker+1:end]
     print("Acceptance rate: ")
     println(length(unique(samples))/length(samples))
 
@@ -412,10 +418,10 @@ function batchwise_training(iid::Matrix, samples::Matrix, path2::String, minibat
             plot_flow_alldimension(path, flow, samples,i);
         end
 
-        if (lr > 5f-5)
+        if (lr > 5f-4)
             lr=lr*lrf
         else
-            lr=5f-5
+            lr= 5f-4
         end
     end
     plot_loss_alldimension(path,vali[2:end])
@@ -432,17 +438,18 @@ function batchwise_training(iid::Matrix, samples::Matrix, path2::String, minibat
 end
 
 
-function get_tempered_samples(tfactor; n_samp=1000, dims=3, peaks=3,context = BATContext(ad = ADModule(:ForwardDiff)))
-    posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), get_triplemode(dims,tfactor=tfactor,peaks=peaks), context)
+function get_tempered_samples(posterior, tfactor; n_samp=1000, dims=3, context = BATContext(ad = ADModule(:ForwardDiff)))
+    posterior, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), posterior, context)
     target_logpdf = x-> BAT.checked_logdensityof(posterior).(x)
     mcmc=test_MCMC(posterior,n_samp,simulate_walker=false)
     samp=mcmc[1:end,1:n_samp]
     return samp, target_logpdf
 end
 
-function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tempersize=0.05, batchsize=1000, eperplot=5, peaks=3,
-    lr=1f-2, K = 8, flow2 = build_flow(iid./(std(iid)/2), [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = K)]), 
-    lrf=1, vali = [], loss_f=AdaptiveFlows.negll_flow, batches=round(Int,(size(iid,2)/batchsize)))
+
+function tempering_training(posterior, iid::Matrix, path2::String, minibatches, epochs; tempersize=0.05, batchsize=1000, eperplot=2, peaks=3,
+    lr=1f-2, K = 20, flow2 = build_flow(iid./(std(iid)/2), [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = K)]), 
+    lrf=0.95, vali = [], loss_f=AdaptiveFlows.negll_flow, batches=round(Int,(size(iid,2)/batchsize)))
     path = make_Path("$batchsize-$epochs-$minibatches-$lrf",path2)
     dims = size(iid,1)
     for i in 1:dims
@@ -451,7 +458,7 @@ function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tem
     meta = plot_metadaten(path, 0,minibatches, epochs, batchsize, lr, K, lrf)
 
     # Initialiate flow:
-    samples, target_logpdf = get_tempered_samples(0,n_samp=10,peaks=peaks)
+    samples, target_logpdf = get_tempered_samples(posterior, 0,n_samp=10)
     flow, opt, lh = train(samples, target_logpdf, K=K, epochs=0, flow=flow2)
 
     vali = [[100, 100.0, 100]]
@@ -462,14 +469,23 @@ function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tem
     while tf <= 1
         println("tf = $tf, lr = $lr")
 
-        samples, target_logpdf = get_tempered_samples(tf,n_samp=batchsize,dims=size(iid,1),peaks=peaks)
+
+        nuridentflow = FlowSampling(path, posterior, use_mala=false, n_samp=10^5,Knots=Knots,flow=flow,
+                                    marginaldistribution=marginal, identystart=false, 
+                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=100)
+
+
+        minibatches=1
+        epochs=10
+        samples = BAT2Matrix(nuridentflow.result_trafo.v)
+        #samples, target_logpdf = get_tempered_samples(posterior, tf,n_samp=batchsize,dims=size(iid,1))
         flow, opt_state, loss_hist = train(samples, target_logpdf, flow=flow,
-                              batches=minibatches, epochs=epochs, opti=Adam(lr), shuffle=false, loss=loss_f)
+                              batches=minibatches, epochs=epochs, opti=Adam(lr), shuffle=true, loss=loss_f)
 
         push!(vali, [mean(loss_hist[2][d]) for d in 1:dims])
 
         if (i%eperplot) == 0
-            plot_flow_alldimension(path, flow, iid,i);
+            plot_flow_alldimension(path, flow, iid,Int(tf*100));
         end
 
         if (lr > 5f-5)
@@ -477,6 +493,9 @@ function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tem
         else
             lr=5f-5
         end
+        #if tf > 0.8
+        #    tempersize=0.01
+        #end
         tf = round(tf+tempersize,digits=3)
         i +=1
     end
@@ -495,6 +514,82 @@ function tempering_training(iid::Matrix, path2::String, minibatches, epochs; tem
 end
 
 
+
+function tempering_test(iid::Matrix, path2::String, minibatches, epochs; tempersize=0.05, batchsize=1000, eperplot=2, peaks=3,
+    lr=0.05, K = 20, flow2 = build_flow(iid./2, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = K)]), 
+    lrf=1, vali = [], loss_f=AdaptiveFlows.negll_flow, batches=round(Int,(size(iid,2)/batchsize)))
+    path = make_Path("$batchsize-$epochs-$minibatches-$lrf",path2)
+    dims = size(iid,1)
+    for i in 1:dims
+        mkdir("$path/dim_$i")
+    end
+    meta = plot_metadaten(path, 0,minibatches, epochs, batchsize, lr, K, lrf)
+    plot(flat2batsamples(iid'))
+    savefig("$path/testsamples.pdf")
+    
+    # init Posterior
+    tf=0.0
+    posterior= get_bachelor(dims,tf=tf)
+    # Initialiate flow:
+    samples, target_logpdf = get_tempered_samples(posterior, 0,n_samp=10)
+    flow, opt, lh = train(iid, target_logpdf, K=K, epochs=0, flow=flow2)
+
+    vali = [[100, 100.0, 100]]
+    plot_flow_alldimension(path, flow, iid,0);
+
+    i=0
+    while tf <= 1
+        println("tf = $tf, lr = $lr")
+        posterior= get_bachelor(dims,tf=tf)
+
+        nuridentflow = FlowSampling(path, posterior, use_mala=false, n_samp=10^5,Knots=Knots,flow=flow,
+                                    marginaldistribution=marginal, identystart=false, 
+                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=100,pretrafo=BAT.DoNotTransform())
+
+        minibatches=1
+        epochs=10
+        samples = BAT2Matrix(nuridentflow.result_trafo.v)
+        plot(flat2batsamples(samples'))
+        savefig("$path/samples_trafo_$i.pdf")
+        s=BAT2Matrix(nuridentflow.result.v)
+        plot(flat2batsamples(s'))
+        savefig("$path/samples_$i.pdf")
+        #samples, target_logpdf = get_tempered_samples(posterior, tf,n_samp=batchsize,dims=size(iid,1))
+        flow, opt_state, loss_hist = train(samples, target_logpdf, flow=flow,
+                              batches=minibatches, epochs=epochs, opti=Adam(lr), shuffle=true, loss=loss_f)
+
+        push!(vali, [mean(loss_hist[2][d]) for d in 1:dims])
+
+        if (i%eperplot) == 0
+            plot_flow_alldimension(path, flow, iid,Int(tf*100));
+        end
+        #p=plot_spline(flow,iid)
+        #savefig("$path/spline_$i.pdf")
+
+        if (lr > 5f-5)
+            lr=lr*lrf
+        else
+            lr=5f-5
+        end
+        #if tf > 0.8
+        #    tempersize=0.01
+        #end
+        tf = round(tf+tempersize,digits=3)
+        i +=1
+    end
+
+    plot_loss_alldimension(path,vali[2:end])
+    # Mittelwert letzen 10 % des Trainings berechnen zur Reduzierung von Schwankung bei zu hoher lr
+    midloss = mean(vali[end - ceil(Int, 0.1 * length(vali)) + 1:end])
+    #midloss2 = mean(loss[end - ceil(Int, 0.1 * length(vali)) + 1:end])
+    file = open("$path2/2D.txt", "a")
+        write(file, "$epochs, $lrf, $(join(string.(midloss), ", ")) \n")# $midloss2\n")
+    close(file)
+
+    plot(flat2batsamples(flow(iid)'), density=true,right_margin=9Plots.mm)
+    savefig("$path/result.pdf")
+    return flow, vali
+end
 #####################################################################
 # Use Loss functions of Adaptive Flows for validation on testsamples
 #####################################################################

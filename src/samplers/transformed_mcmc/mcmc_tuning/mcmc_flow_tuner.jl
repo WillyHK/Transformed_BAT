@@ -20,12 +20,12 @@ struct MCMCFlowTuner <: TransformedAbstractMCMCTunerInstance
 end
 export MCMCFlowTuner
 
-(tuning::MCMCFlowTuning)(chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(1f-2), 1, 5)
-get_tuner(tuning::MCMCFlowTuning, chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(1f-2), 1, 5)
+(tuning::MCMCFlowTuning)(chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.01), 1, 10)
+get_tuner(tuning::MCMCFlowTuning, chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.01), 1, 10)
 
 
 function MCMCFlowTuning(tuning::MCMCFlowTuning, chain::MCMCIterator)
-    MCMCFlowTuner(Adam(1f-2), 1, 5)
+    MCMCFlowTuner(Adam(0.01), 1, 10)
 end
 
 
@@ -50,7 +50,11 @@ function tune_mcmc_transform!!(
     flow_new = AdaptiveFlows.optimize_flow(nestedview(Matrix(flatview(x))), flow, tuner.optimizer, loss=AdaptiveFlows.negll_flow, nbatches = tuner.n_batches, 
                                                         nepochs = tuner.n_epochs, shuffle_samples = true, logpdf = (target_logpdf,AdaptiveFlows.std_normal_logpdf))
 
-    tuner_new = MCMCFlowTuner(AdaptiveFlows.Adam(tuner.optimizer.eta*0.99), tuner.n_batches,tuner.n_epochs) # might want to update the training parameters 
+    eta = tuner.optimizer.eta*0.98
+    if (eta < 5f-5)
+        eta = 5f-5
+    end
+    tuner_new = MCMCFlowTuner(AdaptiveFlows.Adam(eta), tuner.n_batches,tuner.n_epochs) # might want to update the training parameters 
 
     return tuner_new, flow_new
 end

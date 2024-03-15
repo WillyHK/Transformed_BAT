@@ -90,7 +90,7 @@ function create_Animation(flow, samples, loss, path, epoch, ani_spline, lr, meta
 end
 
 
-function plot_loss_alldimension(path,loss)
+function plot_loss_alldimension(path,loss; name="loss_vali.pdf")
     l = round.(loss[end],digits=4);
     p= plot(xlabel="Epoch", ylabel="Loss", title="Loss, End=$(join(string.(l), ", ")) ", left_margin = 9Plots.mm, bottom_margin=7Plots.mm);
     if l isa Float64
@@ -100,7 +100,7 @@ function plot_loss_alldimension(path,loss)
         plot!(1:length(loss), [x[i] for x in loss], label="NN $i")
     end
     plot!(legend=:topright)
-    savefig("$path/Loss_vali.pdf");
+    savefig("$path/$name");
 
     return p
 end
@@ -112,7 +112,7 @@ function plot_samples(path, samp::Matrix, marginaldistribution)
     y_values = y.(x_values)
     factor = distri.prior.bounds.vol.hi[1]-distri.prior.bounds.vol.lo[1]
     for i in 1:dims
-        plot(flat2batsamples(samp[1,:]), density=true,right_margin=9Plots.mm)
+        plot(flat2batsamples(samp[1,:]), density=true,right_margin=9Plots.mm, bins=1000)
         title!("$(size(samp)), Dimension $i")
         plot!(x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black")
         savefig("$path/sampling_result_$i.pdf")
@@ -141,7 +141,7 @@ function plot_flow(flow,samples; dimension = 1, legend=false)
     x_values = Vector(range(-5.5, stop=5.5, length=1000))
     f(x) = densityof(Normal(0,1.0),x)
     y_values = f.(x_values)
-    plot!(x_values, y_values, density=true, linewidth=2.5, label ="N(0,1)", color="black")
+    plot!(x_values, y_values, density=true, linewidth=2.5, label ="N(0,1)", color="black",bins=1000)
     if legend 
         plot!(legend =:topright)
     end
@@ -180,7 +180,7 @@ function plot_spline(flow, samples; sigma=false) # doesnt make sense for more th
         plot!(Shape([x1, x2, x2, x1], [-5.5,-5.5,5.5,5.5]), fillalpha=0.25, c=:yellow, linewidth=0.0, label=false, line=false)
     end
     ylims!(-5.5,5.5)
-    #savefig("$path/spline.pdf")
+    #savefig("$path/$name")
     return p
 end
 
@@ -250,4 +250,42 @@ function get_iid(peakpositions,dim,n)
     end
     model = MixtureModel(peakss)
     return Matrix(rand(model,n)), x-> logpdf(model,x)
+end
+
+function get_iid_batch(dim,n; peakpositions=[-30.0,0.0,30.0], w= [0.1, 0.89, 0.01])
+    peakss::Vector{MvNormal} = []
+    weights::Vector{Float64} = []
+    for peak in collect(Iterators.product(fill(peakpositions, dim)...))
+        push!(peakss, MvNormal(collect(peak),I(dim)))
+        wx = zeros(length(peak))
+        for i in 1:lastindex(peak)
+            if (peakpositions[1] == peak[i]) wx[i] = w[1] end
+            if (peakpositions[2] == peak[i]) wx[i] = w[2] end
+            if (peakpositions[3] == peak[i]) wx[i] = w[3] end
+        end
+        push!(weights, prod(wx))
+    end
+    model = MixtureModel(peakss,weights)
+    return Matrix(rand(model,n)), x-> logpdf(model,x)
+end
+
+###############################################################
+# Save stuff in Datei
+###############################################################
+function saveSamples(path::String, samples::Matrix; name="samples.jls")
+    while isfile("$path/$name")
+        path = make_Path("Trick2",path)
+    end
+    open("$path/$name","w") do io
+        serialize(io,samples)
+    end
+end
+
+function saveFlow(path::String, flow; name="flow.jls")
+    while isfile("$path/$name")
+        path = make_Path("Trick2",path)
+    end
+    open("$path/$name","w") do io
+        serialize(io,flow)
+    end
 end

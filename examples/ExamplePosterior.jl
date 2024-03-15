@@ -213,15 +213,33 @@ end
 
 function get_multimodal(dim=3)
     label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
-    value = [ Uniform(-25,25) for i in 1:dim]
+    value = [ Uniform(-50,50) for i in 1:dim]
     prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
 
     likelihood = params -> begin      
         r=0
         for i in 1:dim
-            r+= logpdf(MixtureModel(Normal, [(-20,1.0),(-10,1.0),(0,1.0),(10,1.0),(20,1.0)],[0.35,0.3,0.2,0.1,0.05]), params[i])
+            r+= logpdf(MixtureModel(Normal, [(-40,1.0),(-20,1.0),(0,1.0),(20,1.0),(40,1.0)],[0.35,0.3,0.2,0.1,0.05]), params[i])
         end
         return LogDVal(r)
+    end
+    posterior = PosteriorDensity(likelihood, prior);
+    return posterior
+end
+
+
+
+function get_bachelor(dim=3;tf=1.0)
+    label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
+    value = [ Uniform(-20,20) for i in 1:dim]
+    prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    likelihood = params -> begin      
+        r=0
+        for i in 1:dim
+            r+= logpdf(MixtureModel(Normal, [(-10.0, 1.0), (0.0, 1.0), (10.0, 1.0)], [0.1, 0.899, 0.001]), params[i])
+        end
+        return LogDVal(tf*r)
     end
     posterior = PosteriorDensity(likelihood, prior);
     return posterior

@@ -5,40 +5,71 @@ include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/exampl
 include("/ceph/groups/e4/users/wweber/private/Master/Code/Transformed_BAT/examples/ExamplePosterior.jl")
 gr()  
 
-dims = 7
+dims = 1
 Knots = 20
-n_samp=50*(1000^2)
-testname = "$dims-D_$Knots-K_$n_samp-SamplesMultimodal"
+walker=1000
+inburn=100
+n_samp=2*10^6
+testname = "test1d_$dims-Dimensionen-NoOPTuning_BachelorDistribution_$Knots-K_$(n_samp/(1000)^2)_M_samples+"
+println("################################################################")
+println("# $testname")
+println("################################################################")
 path = make_Path("$testname")
 peaks=3
 #distri = get_triplemode(dims, peaks=peaks)
-distri = get_multimodal(dims)
-marginal = get_multimodal(1)
-#pre_trafo = BAT.DoNotTransform()
+distri = get_bachelor(dims) # get_rings2d()# 
+marginal = get_bachelor(1)
 context = BATContext(ad = ADModule(:ForwardDiff))
+density, trafo = BAT.transform_and_unshape(BAT.PriorToGaussian(), distri, context)
+target_logpdf = x -> BAT.checked_logdensityof(density).(x)
 
-#iid, target_logpdf2 = get_iid([-peaks,0,peaks],dims,n_samp)
-#samp=iid
 
-function iterate_FlowSampling(sampPerRun=100000)
-    x=FlowSampling(path, distri,use_mala=false,n_samp=sampPerRun,Knots=Knots)
-    samp = BAT2Matrix(x.result.v)
-    flow = x.flow
-    i=0
-    while (size(samp,2)<n_samp) # TODO hier wird leider noch jedes mal die lr zurückgesetzt #evtl Plots einfach in BAT.jl machen?
-        path2=make_Path("$testname/$i")
-        x=FlowSampling(path2, distri,use_mala=false,n_samp=sampPerRun,flow=flow)
-        samp = hcat(samp,BAT2Matrix(x.result.v))
-        plot_samples(path2, samp,get_triplemode(1))
-        flow = x.flow
-        i=i+1
-    end
+nuridentflow = FlowSampling(make_Path("$testname/notrain_$dims"), distri, use_mala=false, n_samp=n_samp,Knots=Knots,
+                                    marginaldistribution=marginal, identystart=true, 
+                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=BAT.DoNotTransform())
+
+
+minibatches=4
+epochs=100
+samp = BAT2Matrix(nuridentflow.result_trafo.v)[:,rand(1:length(nuridentflow.result_trafo.v),10^6)]
+#saveSamples(path,samp,name="samples_identy.jls")
+
+
+samp = BAT2Matrix(bat_sample(MixtureModel(Normal, [(-10.0, 1.0), (0.0, 1.0), (10.0, 1.0)], [0.1, 0.899, 0.001]),BAT.IIDSampling()).result.v)
+#plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
+#title!("$(size(samp))")
+#savefig("$path/traindata.pdf")
+#flow, mull = tempering_test(samp,make_Path("$testname/temp_train"),minibatches,epochs, K=20)#,flow2=nuridentflow.flow)
+
+
+flow, opt_state, loss_hist = train(samp, target_logpdf, flow= build_flow(samp./2, [InvMulAdd, RQSplineCouplingModule(size(samp,1), K = Knots)]),#nuridentflow.flow, K=20,
+                                    batches=minibatches, epochs=epochs, opti=Adam(0.005), shuffle=true)
+plot_flow_alldimension(path,flow,samp,1)
+for i in 1:dims
+    plot_loss_alldimension(path,loss_hist[2][i],name="loss_$i.pdf")
 end
+saveFlow(path,flow)
 
-x=FlowSampling(path, distri,use_mala=false,n_samp=n_samp,Knots=Knots,marginaldistribution=marginal)
-mcmc=test_MCMC(distri,n_samp, simulate_walker=false)
-plot_samples(make_Path("$testname/mcmc"), mcmc,marginal)
-#iterate_FlowSampling()
+trainedflow = FlowSampling(make_Path("$testname/flowtrain_$dims"), distri, use_mala=false, n_samp=n_samp,Knots=Knots,
+                                    marginaldistribution=marginal, flow=flow, identystart=false, 
+                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=BAT.DoNotTransform())
+samp = BAT2Matrix(trainedflow.result_trafo.v)
+#saveSamples(path,samp,name="samples_flow.jls")
+
+
+
+ENDE
+
+#mcmc=test_MCMC(distri,n_samp, simulate_walker=false)
+#plot_samples(make_Path("$testname/mcmc"), mcmc,marginal)
+
+density, trafo = BAT.transform_and_unshape(BAT.PriorToGaussian(), distri, context)
+s = cholesky(Positive, BAT._approx_cov(density)).L
+noFlow = BAT.CustomTransform(Mul(s))
+
+my_result = BAT.bat_sample_impl(distri, TransformedMCMCSampling(pre_transform=PriorToGaussian(), tuning_alg=TransformedAdaptiveMHTuning(), nchains=4, nsteps=4*1000, adaptive_transform=noFlow), context).result
+println(my_result)
+
 
 ENDE
 #SplineWatch_FlowSampling(path, distri,Knots=5,n_samp=200000)
@@ -76,6 +107,23 @@ while (length(test)<nwalker)
     end
 end
 #samp = Matrix{Float64}(test[1:nwalker]')
+
+
+function iterate_FlowSampling(sampPerRun=100000)
+    x=FlowSampling(path, distri,use_mala=false,n_samp=sampPerRun,Knots=Knots)
+    samp = BAT2Matrix(x.result.v)
+    flow = x.flow
+    i=0
+    while (size(samp,2)<n_samp) # TODO hier wird leider noch jedes mal die lr zurückgesetzt #evtl Plots einfach in BAT.jl machen?
+        path2=make_Path("$testname/$i")
+        x=FlowSampling(path2, distri,use_mala=false,n_samp=sampPerRun,flow=flow)
+        samp = hcat(samp,BAT2Matrix(x.result.v))
+        plot_samples(path2, samp,get_triplemode(1))
+        flow = x.flow
+        i=i+1
+    end
+end
+
 
 function test_sampling()
     iters = 5

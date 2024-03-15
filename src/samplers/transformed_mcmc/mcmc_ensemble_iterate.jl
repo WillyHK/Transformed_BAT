@@ -140,6 +140,7 @@ function propose_random_normal(dim::Int, n::Int,rng)
 end
 
 function propose_mcmc(z, dim::Int, tau::Float64, rng)
+    tau = 1
     return z + tau*rand(rng, MvNormal(zeros(dim),ones(dim)))
 end
 

@@ -1,6 +1,6 @@
 context = BATContext(ad = ADModule(:ForwardDiff))
-path = make_Path("Test_thesis")
-dims=5
+path = make_Path("Test_thesis_dims=3")
+dims=3
 tf=1.0
 smallpeak=0.1
 k=20
@@ -49,7 +49,7 @@ walker=1000
 n_samp = 3*10^5#length(standard.v)
 inburn = 1000
 
-ensemble= FlowSampling(make_Path("Hilfe3",path), post, use_mala=false, n_samp=n_samp,Knots=20,
+ensemble= FlowSampling(make_Path("Hilfe3",path), post, use_mala=false, n_samp=n_samp,Knots=20, walker=walker,
                                     marginaldistribution=marginal, identystart=false, flow=flow,
                                     tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=BAT.DoNotTransform())
 

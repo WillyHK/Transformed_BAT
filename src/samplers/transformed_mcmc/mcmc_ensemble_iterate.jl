@@ -139,13 +139,12 @@ function propose_random_normal(dim::Int, n::Int,rng)
     return rand(rng,MvNormal(zeros(dim),ones(dim)),n)
 end
 
-function propose_mcmc(z, dim::Int, tau::Float64, rng)
-    tau = 1
-    return z + tau*rand(rng, MvNormal(zeros(dim),ones(dim)))
+function propose_mcmc(z, dim::Int, rng)
+    return z + rand(rng, MvNormal(zeros(dim),ones(dim)))
 end
 
 function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector, rng)
-    return z + sqrt(2*tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))+ tau * gradient
+    return z + sqrt(2*tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
 end
 
 function propose_state(
@@ -176,7 +175,7 @@ function propose_state(
         z_proposed[i] = propose_mala.(z[i], dim, iter.tau, grads[i],rng)
     else
         i = .!flow_mask
-        z_proposed[i] = propose_mcmc.(z[i], dim, 0.1,rng)#iter.tau,rng)
+        z_proposed[i] = propose_mcmc.(z[i], dim, rng)
     end
 
     x_proposed, ladj = with_logabsdet_jacobian(f_inv, z_proposed)
@@ -220,11 +219,11 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
     rate = sum(accepted)/length(p_accept)
-    if rate > 0.57
-        iter.tau = iter.tau*1.05
-    else
-        iter.tau = iter.tau*0.95
-    end
+    #if rate > 0.57
+    #    iter.tau = iter.tau*1.05
+    #else
+    #    iter.tau = iter.tau*0.95
+    #end
 
     x_new, logd_x_new = copy(state_x.v), copy(state_x.logd)
     z_new, logd_z_new = copy(state_z.v), copy(state_z.logd)

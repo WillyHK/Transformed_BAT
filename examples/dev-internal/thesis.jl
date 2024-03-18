@@ -1,29 +1,30 @@
 context = BATContext(ad = ADModule(:ForwardDiff))
-path = make_Path("Test_thesis_dims=3")
 dims=3
+path = make_Path("Thesis_dims=$dims-Ptg_tau_1")
 tf=1.0
 smallpeak=0.1
 k=20
-pretrafo=BAT.DoNotTransform()
+pretrafo=BAT.PriorToGaussian()
 
 model=MixtureModel(Normal, [(-10.0, 1.0),(10.0, 1.0)], [smallpeak, 1-smallpeak])
 
 post=get_posterior(model,dims)
 marginal = get_posterior(model,1)
-post, trafo = BAT.transform_and_unshape(pretrafo, post, context)
-marginal, trafo2 = BAT.transform_and_unshape(pretrafo, marginal, context)
+post, trafo = BAT.transform_and_unshape(BAT.DoNotTransform(), post, context)
+marginal, trafo2 = BAT.transform_and_unshape(BAT.DoNotTransform(), marginal, context)
 target_logpdf = x -> BAT.checked_logdensityof(post).(x)
 
-standard = @time bat_sample(post, MCMCSampling(nsteps = 10^5, nchains = 4,strict=false,
+standard = @time bat_sample(post, MCMCSampling(nsteps = 10^6, nchains = 4,strict=false,
                                 trafo=pretrafo, 
                                 init=MCMCChainPoolInit(init_tries_per_chain=BAT.ClosedInterval(4,128)),
                                 burnin=MCMCMultiCycleBurnin()),      
-                                context).result
-samp = BAT2Matrix(standard.v)
+                                context)
+samp = BAT2Matrix(standard.result.v)
 plot_samples(path,samp,marginal)
 
-iid = BAT2Matrix(rand(get_prior(model,dims),10^5))
-plot_samples(path,iid,marginal)
+#iid = BAT2Matrix(rand(get_prior(model,dims),10^5))
+iid=BAT2Matrix(standard.result_trafo.v)[:,1:10^5]
+plot_samples(path,iid,marginal,name="traindata.pdf")
 
 flow = build_flow(iid, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = k)])
 x= train(iid[:,1:3],target_logpdf)
@@ -46,12 +47,12 @@ saveFlow(path,flow)
 
 
 walker=1000
-n_samp = 3*10^5#length(standard.v)
+n_samp = 10^6#length(standard.v)
 inburn = 1000
 
 ensemble= FlowSampling(make_Path("Hilfe3",path), post, use_mala=false, n_samp=n_samp,Knots=20, walker=walker,
-                                    marginaldistribution=marginal, identystart=false, flow=flow,
-                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=BAT.DoNotTransform())
+                                    marginaldistribution=marginal, identystart=false, flow=flow, dims=dims,
+                                    tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=pretrafo)
 
 # ensemble = BAT.bat_sample_impl(post, 
 #                                 TransformedMCMCSampling(pre_transform=pretrafo, 
@@ -62,7 +63,7 @@ ensemble= FlowSampling(make_Path("Hilfe3",path), post, use_mala=false, n_samp=n_
 #                                                         nwalker=walker),
 #                                                         context);
 samp = BAT2Matrix(ensemble.result.v)
-plot_samples(path,samp,marginal)
+plot_samples(path,samp,marginal,name="flowresult_with_burnin.pdf")
 # 
 # 
 # standard2 = bat_sample(post, TransformedMCMCSampling(nsteps = 10^3, nchains = 4,strict=false)).result

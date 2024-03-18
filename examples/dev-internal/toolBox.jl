@@ -105,7 +105,7 @@ function plot_loss_alldimension(path,loss; name="loss_vali.pdf")
     return p
 end
 
-function plot_samples(path, samp::Matrix, marginaldistribution)
+function plot_samples(path, samp::Matrix, marginaldistribution; name = "sampling_result.pdf")
     dims=size(samp,1)
     x_values = Vector(range(minimum(samp), stop=maximum(samp), length=1000))
     y(x) = densityof(BAT.transform_and_unshape(DoNotTransform(), marginaldistribution, context)[1],[x])
@@ -122,8 +122,8 @@ function plot_samples(path, samp::Matrix, marginaldistribution)
         plot!(p[i,i],x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black",normalized=true)
     end
     title!("$(size(samp))")
-    savefig("$path/sampling_result.pdf")
-    savefig(p,"$path/sampling_result.pdf")
+    savefig("$path/$name")
+    #savefig(p,"$path/sampling_result.pdf")
     return p
 end
 

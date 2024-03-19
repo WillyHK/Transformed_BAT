@@ -143,8 +143,17 @@ function propose_mcmc(z, dim::Int, rng)
     return z + rand(rng, MvNormal(zeros(dim),ones(dim)))
 end
 
-function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector, rng)
-    return z + sqrt(2*tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
+#function propose_mala(z, dim::Int, tau::Float64, gradient::AbstractVector, rng)
+#    tau=0.2
+#    return z + sqrt(2*tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))+ tau .* gradient
+#end
+function propose_mala(z, dim, tau, gradient, rng)
+    proposal = z + 0.5 * tau^2 * gradient + sqrt(tau) * rand(rng, MvNormal(zeros(dim),ones(dim)))
+    #proposal_covariance = tau^2 * I(dim)
+
+    #proposal = rand(rng, MvNormal(proposal_mean, proposal_covariance))
+    
+    return proposal
 end
 
 function propose_state(
@@ -197,6 +206,12 @@ function propose_state(
     return state_x_proposed, state_z_proposed, p_accept
 end
 
+function adaptive_tau_update!(iter, actuel_rate, target_accept_rate)
+    gamma = 0.01
+    factor = gamma * (actuel_rate - target_accept_rate) / target_accept_rate
+    iter.tau *= exp(factor)
+    return iter.tau
+end
     
 function transformed_mcmc_step!!(
     iter::TransformedMCMCEnsembleIterator,
@@ -219,11 +234,7 @@ function transformed_mcmc_step!!(
     
     accepted = rand(rng, length(p_accept)) .<= p_accept
     rate = sum(accepted)/length(p_accept)
-    #if rate > 0.57
-    #    iter.tau = iter.tau*1.05
-    #else
-    #    iter.tau = iter.tau*0.95
-    #end
+    adaptive_tau_update!(iter,rate,0.57)
 
     x_new, logd_x_new = copy(state_x.v), copy(state_x.logd)
     z_new, logd_z_new = copy(state_z.v), copy(state_z.logd)

@@ -135,7 +135,7 @@ end
 function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape), Knots=20, context =BATContext(ad = ADModule(:ForwardDiff)), 
                     n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, 
                     flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)]),
-                    marginaldistribution = get_triplemode(1), identystart=false, burnin=100000, pretrafo=BAT.PriorToGaussian())
+                    marginaldistribution = get_triplemode(1), identystart=false, burnin=1000, pretrafo=BAT.PriorToGaussian())
 
     if identystart
         #target_logpdf = x -> logpdf(get_normal(dims)).(x)
@@ -143,10 +143,11 @@ function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape)
                                                         nepochs = 100, shuffle_samples = true, logpdf = (AdaptiveFlows.std_normal_logpdf,AdaptiveFlows.std_normal_logpdf)).result
     end
     
+    nsteps =round(Int,n_samp/walker)+burnin-1
     x = @time BAT.bat_sample_impl(posterior, 
                                 TransformedMCMCSampling(pre_transform=pretrafo, 
                                                         init=TransformedMCMCEnsemblePoolInit(),
-                                                        tuning_alg=tuner, tau=tau, nsteps=Int(n_samp/walker)+burnin-1,
+                                                        tuning_alg=tuner, tau=tau, nsteps=nsteps,
                                                         adaptive_transform=BAT.CustomTransform(flow), use_mala=use_mala,
                                                         nchains=nchains, nwalker=walker),
                                                         context);
@@ -155,6 +156,7 @@ function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape)
     println(length(unique(samples))/length(samples))
 
     samples_trafo = x.result_trafo.v
+    saveFlow(path,flow)
     plot_flow_alldimension(path, x.flow, BAT2Matrix(samples_trafo),Knots); # Flow was trained inside the PriorToGaussian()-Room
     plot_samples(path, BAT2Matrix(samples), marginaldistribution)
     return x

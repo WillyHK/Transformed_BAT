@@ -293,3 +293,16 @@ function saveFlow(path::String, flow; name="flow.jls")
         serialize(io,flow)
     end
 end
+
+function loadFlow(path::String, dim; name="flow_$dim.jls")
+    filename = joinpath(path, name)
+    if isfile(filename)
+        flow = nothing
+        open(filename, "r") do io
+            flow = deserialize(io)
+        end
+        return flow
+    else
+        error("Die Datei '$filename' existiert nicht.")
+    end
+end

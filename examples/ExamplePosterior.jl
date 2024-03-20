@@ -1,10 +1,14 @@
 ##################################################################################
 # Nehme Samples die als dxn-Matrix vorliegen und bringe sie ins Bat-Plot-Format
 ##################################################################################
-function flat2batsamples(smpls_flat)
+function flat2batsamples(smpls_flat; w=ones(0))
     n = length(smpls_flat[:,1])
     smpls = [smpls_flat[i,1:end] for i in 1:n]
-    weights = ones(length(smpls))
+    if (w==ones(0))
+        weights = ones(length(smpls))
+    else
+        weights = w
+    end
     logvals = zeros(length(smpls))
     return BAT.DensitySampleVector(smpls, logvals, weight = weights)
 end
@@ -267,6 +271,13 @@ function get_prior(model,dim)
     label = [Symbol(string(Char(i))) for i in 97:97+dim-1]
     value = [ model for i in 1:dim]
     prior = BAT.NamedTupleDist((; zip(label,value)...)) # Modell
+
+    return prior
+end
+
+
+function get_prior_unshape(model,dim)
+    prior = [ model for i in 1:dim]
 
     return prior
 end

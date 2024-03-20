@@ -1,14 +1,14 @@
 context = BATContext(ad = ADModule(:ForwardDiff))
-dims=2
+dims=5
 mala = true
-path = make_Path("Thesis_dims=$dims-CodeNeu")
+path = make_Path("Mixture_dims=$dims-Mala")
 tf=1.0
-smallpeak=0.1
+smallpeak=0.01
 k=20
 pretrafo=BAT.PriorToGaussian()
 
 
-model=MixtureModel(Normal, [(-10.0, 1.0),(10.0, 1.0)], [smallpeak, 1-smallpeak])
+model=MixtureModel(Normal, [(-15.0, 0.1),(0.0,0.2),(15.0, 1.0)], [smallpeak, 5*smallpeak, 1-smallpeak*6])
 
 post= get_posterior(model,dims,tf=tf)
 marginal = get_posterior(model,1,tf=tf)
@@ -26,7 +26,7 @@ plot_samples(path,samp,marginal)
 
 #iid = BAT2Matrix(rand(get_prior(model,dims),10^5))
 #iid=BAT2Matrix(standard.result_trafo.v)
-iid = rand(MvNormal(zeros(dims),ones(dims)),10^5)
+iid = rand(MvNormal(zeros(dims),ones(dims)*1.2),10^5) # ohne mal 1.2 manchmal flow zu klein !!!!!!!!!!
 
 walker=1000
 n_samp = length(standard.result.v)
@@ -72,7 +72,6 @@ ensemble= FlowSampling(make_Path("train_new_flow",path), post, use_mala=mala, n_
                                 marginaldistribution=marginal, identystart=false, dims=dims, 
                                 flow = build_flow(iid, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = k)]),
                                 tuner=BAT.MCMCFlowTuning(),burnin=inburn,pretrafo=pretrafo)
-
 
 
 

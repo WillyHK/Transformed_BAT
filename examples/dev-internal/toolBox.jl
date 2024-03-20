@@ -6,7 +6,7 @@ function normalize(data::Matrix)
 end
 
 function train(samples::Matrix, target_logpdf;  batches=1, epochs=1, opti=Adam(1f-3), K = 4, shuffle=false, loss=AdaptiveFlows.negll_flow,
-            flow = build_flow((normalize(samples)*(maximum(abs.(samp)/5))), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]))
+            flow = build_flow((normalize(samples)*(maximum(abs.(samples)/5))), [InvMulAdd, RQSplineCouplingModule(size(samples,1), K = K)]))
     #target_logpdf = x -> logpdf
     return AdaptiveFlows.optimize_flow(samples,flow, opti,  
                 loss=loss,
@@ -119,7 +119,7 @@ function plot_samples(path, samp::Matrix, marginaldistribution; name = "sampling
     #end
     p=plot(flat2batsamples(samp'), density=true,right_margin=9Plots.mm)
     for i in 1:min(5,dims)
-        plot!(p[i,i],x_values, y_values*factor,density=true, linewidth=3.2,legend =false, label ="truth", color="black",normalized=true)
+        plot!(p[i,i],x_values, y_values*factor,density=true, linewidth=1.2,legend =false, label ="truth", color="black",normalized=true)
     end
     title!("$(size(samp))")
     savefig("$path/$name")

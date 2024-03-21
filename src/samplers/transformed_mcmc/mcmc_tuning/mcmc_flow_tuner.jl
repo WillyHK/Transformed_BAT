@@ -20,12 +20,12 @@ struct MCMCFlowTuner <: TransformedAbstractMCMCTunerInstance
 end
 export MCMCFlowTuner
 
-(tuning::MCMCFlowTuning)(chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.01), 1, 10)
-get_tuner(tuning::MCMCFlowTuning, chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.01), 1, 10)
+(tuning::MCMCFlowTuning)(chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.005), 2, 20)
+get_tuner(tuning::MCMCFlowTuning, chain::MCMCIterator) = MCMCFlowTuner(AdaptiveFlows.Adam(0.005), 2, 20)
 
 
 function MCMCFlowTuning(tuning::MCMCFlowTuning, chain::MCMCIterator)
-    MCMCFlowTuner(Adam(0.01), 1, 10)
+    MCMCFlowTuner(AdaptiveFlows.Adam(0.005), 2, 20)
 end
 
 

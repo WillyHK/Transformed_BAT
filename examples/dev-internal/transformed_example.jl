@@ -133,7 +133,7 @@ end
 # This is the final version of sampling with a combinations of Flows and BAT
 ##############################################################################
 function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape), Knots=20, context =BATContext(ad = ADModule(:ForwardDiff)), 
-                    n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, 
+                    n_samp=500000, tuner =MCMCFlowTuning(), use_mala=false, walker=1000, tau=0.5, nchains=1, marginal = true,
                     flow = build_flow(rand(MvNormal(zeros(dims),I(dims)),10000), [InvMulAdd, RQSplineCouplingModule(dims, K = Knots)]),
                     marginaldistribution = get_triplemode(1), identystart=false, burnin=1000, pretrafo=BAT.PriorToGaussian())
 
@@ -158,7 +158,7 @@ function FlowSampling(path, posterior; dims = length(posterior.likelihood.shape)
     samples_trafo = x.result_trafo.v
     saveFlow(path,flow)
     plot_flow_alldimension(path, x.flow, BAT2Matrix(samples_trafo),Knots); # Flow was trained inside the PriorToGaussian()-Room
-    plot_samples(path, BAT2Matrix(samples), marginaldistribution)
+    plot_samples(path, BAT2Matrix(samples), marginaldistribution, plot_marginal=marginal)
     return x
 end
 

@@ -1,11 +1,11 @@
 #using BenchmarkTools
-dims=11
+dims=100
 path = make_Path("Importance-$dims")
 num_samples =5*10^6
 smallpeak = 0.1
 model = MixtureModel(Normal, [(-10.0, 1.0),(10.0, 1.0)], [smallpeak, 1-smallpeak])
-smallpeak = 0.01
-model = MixtureModel(Normal, [(-10.0, 0.1),(0.0,0.2),(10.0, 1.0)], [smallpeak, 5*smallpeak, 1-smallpeak*6])
+#smallpeak = 0.01
+#model = MixtureModel(Normal, [(-10.0, 0.1),(0.0,0.2),(10.0, 1.0)], [smallpeak, 5*smallpeak, 1-smallpeak*6])
 x_range = range(-15, stop = 15, length = 1000)
 theorie = pdf(model, x_range)
 
@@ -61,7 +61,7 @@ if isfile("$flowpath/flow_$dims.jls")
     flow = loadFlow(flowpath, dims)
 else
     train(iid[:,1:3],AdaptiveFlows.std_normal_logpdf)
-    flow, opti, loss_hist = train(iid,AdaptiveFlows.std_normal_logpdf, epochs=10, batches=4, 
+    flow, opti, loss_hist = train(iid,AdaptiveFlows.std_normal_logpdf, epochs=25, batches=4, 
                                     shuffle=true, opti=Adam(5f-2), K = 20)
     plot_loss_alldimension(path,loss_hist[2][1])
     saveFlow(flowpath,flow,name="flow_$dims.jls")
@@ -97,7 +97,7 @@ samp,l,w = importance_sampling_flow(10)
 samp,l,w = importance_sampling_flow(num_samples)
 
 plot(flat2batsamples(samp',w=w),bins=500)
-plot!(x_range, theorie, xlabel="x", ylabel="Dichte", label="Mixture Model", color=:black,linewidth=2.5)
+plot!(x_range, theorie, xlabel="x", ylabel="Dichte", label="Mixture Model", color=:black,linewidth=1.2)
 savefig("$path/flowsampling.pdf")
 
 

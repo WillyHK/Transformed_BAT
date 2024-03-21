@@ -1,15 +1,13 @@
-using EFTfitter
-#using BAT            # for sampling
-#using IntervalSets   # for specifying the prior
-#using Distributions  # for specifying the prior
-#using Plots
+using IntervalSets   # for specifying the prior
+include("/ceph/groups/e4/users/wweber/private/Master/Code/EFT/EFTfitter.jl/src/EFTfitter.jl")
 
+area = 2
 parameters = BAT.distprod(
-    ctW =  -3..3, 
-    ctZ =  -3..3,
-    ctl1 =  -3..3,
-    cte1 = -3..3,
-    cQe1 =  -3..3
+    ctW =  -area..area, 
+    ctZ =  -area..area,
+    ctl1 =  -area..area,
+    cte1 = -area..area,
+    cQe1 =  -area..area,
 )
 
 function AFB_t_ctW(params)
@@ -37,19 +35,44 @@ function AFB_t_cQe1(params)
     return ((c[1] + c[2] * params.cQe1 + c[3] * params.cQe1^2) - (c[4] + c[5] * params.cQe1 + c[6] * params.cQe1^2)) / ((c[1] + c[2] * params.cQe1 + c[3] * params.cQe1^2) + (c[4] + c[5] * params.cQe1 + c[6] * params.cQe1^2))
 end
 
+
 measurements = (
-    Meas1 = Measurement(AFB_t_ctW, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
-    Meas2 = Measurement(AFB_t_ctZ, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
-    Meas3 = Measurement(AFB_t_ctl1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
-    Meas4 = Measurement(AFB_t_cte1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
-    Meas5 = Measurement(AFB_t_cQe1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
+    Meas1 = EFTfitter.Measurement(AFB_t_ctW, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
+    Meas2 = EFTfitter.Measurement(AFB_t_ctZ, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
+    Meas3 = EFTfitter.Measurement(AFB_t_ctl1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
+    Meas4 = EFTfitter.Measurement(AFB_t_cte1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
+    Meas5 = EFTfitter.Measurement(AFB_t_cQe1, 0.17978, uncertainties = (stat = 0.0021, ), active = true), 
 )
+
+function plot_physics()
+    path2 = make_Path("Physiktheorie")
+    x_values = [parameters.ctW.a:0.001:parameters.ctW.b,
+                parameters.ctZ.a:0.001:parameters.ctZ.b,
+                parameters.ctl1.a:0.001:parameters.ctl1.b,
+                parameters.cte1.a:0.001:parameters.cte1.b,
+                parameters.cQe1.a:0.001:parameters.cQe1.b]
+
+    funcs = [x-> AFB_t_ctW((ctW=x,)),
+             x-> AFB_t_ctZ((ctZ=x,)),
+             x-> AFB_t_ctl1((ctl1=x,)),
+             x-> AFB_t_cte1((cte1=x,)),
+             x-> AFB_t_cQe1((cQe1=x,))]
+
+    for i in 1:5
+        plot(x_values[i],funcs[i],label="function")
+        y_values = measurements[i].value*ones(length(x_values[i]))
+        error_values = ones(length(x_values[i]))*measurements[i].uncertainties.stat
+        plot!(x_values[i], y_values, label="value", color=:blue)
+        plot!(fill_between = (x_values[i], y_values .- error_values, y_values .+ error_values), alpha=0.3, label="uncertaintie")
+        savefig("$path2/Variable$i.pdf")
+    end
+end
 
 correlations = (
-    stat = NoCorrelation(active=true),
+    stat = EFTfitter.NoCorrelation(active=true),
 )
 
-model = EFTfitterModel(parameters, measurements, correlations)
+model = EFTfitter.EFTfitterModel(parameters, measurements, correlations)
 
 posterior = PosteriorMeasure(model)
 
@@ -57,3 +80,47 @@ algorithm = MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^6, nchains = 
 samples = bat_sample(posterior, algorithm).result;
 
 plot(samples)
+
+
+
+###########################
+#### Hier ansetzen
+###########################
+context = BATContext(ad = ADModule(:ForwardDiff))
+dims=length(measurements)
+mala = false
+path = make_Path("Physik_$dims-80k")
+savefig("$path/MCMC.pdf")
+tf=1.0
+smallpeak=0.01
+k=80
+pretrafo=BAT.PriorToGaussian()
+
+post=posterior
+
+standard = @time bat_sample(post, MCMCSampling(nsteps = 10^6, nchains = 4,strict=false,
+                                trafo=pretrafo, 
+                                init=MCMCChainPoolInit(init_tries_per_chain=BAT.ClosedInterval(4,128)),
+                                burnin=MCMCMultiCycleBurnin()),      
+                                context)
+plot(standard.result)
+savefig("$path/MCMC2.pdf")
+
+iid = rand(MvNormal(zeros(dims),ones(dims)*1.2),10^5) # ohne mal 1.4 manchmal flow zu klein !!!!!!!!!!
+walker=1000
+n_samp = 5*10^6#length(standard.result.v)
+inburn = 1000
+
+ensemble= FlowSampling(make_Path("ensemble_without_flow",path), post, use_mala=mala, n_samp=n_samp,Knots=k, walker=walker,
+                                identystart=false, dims=dims, marginal=false,
+                                flow = build_flow(iid, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = k)]),
+                                tuner=BAT.TransformedMCMCNoOpTuning(),burnin=inburn,pretrafo=pretrafo)
+
+ensemble= FlowSampling(make_Path("train_new_flow",path), post, use_mala=mala, n_samp=n_samp,Knots=k, walker=walker,
+                                identystart=false, dims=dims, marginal=false,
+                                flow = build_flow(iid, [InvMulAdd, RQSplineCouplingModule(size(iid,1), K = k)]),
+                                tuner=BAT.MCMCFlowTuning(),burnin=inburn,pretrafo=pretrafo)
+
+
+
+
